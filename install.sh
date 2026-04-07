@@ -96,9 +96,9 @@ if [ ! -f "$PROJECT_DIR/credentials.json" ]; then
     exit 1
 fi
 
-# 建立桌面 .app
-echo "建立桌面 App..."
-APP_PATH="$HOME/Desktop/會議記錄.app"
+# 建立 .app（放在專案資料夾內，再建桌面捷徑）
+echo "建立 App..."
+APP_PATH="$PROJECT_DIR/會議記錄.app"
 rm -rf "$APP_PATH"
 
 cat > /tmp/meeting_minutes.applescript << APPLESCRIPT
@@ -149,7 +149,10 @@ fi
 # 移除 macOS 隔離標記（避免「App 已損毀」警告）
 xattr -cr "$APP_PATH" 2>/dev/null || true
 
+# 建立桌面替身（alias）
+osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$APP_PATH\" at POSIX file \"$HOME/Desktop/\"" 2>/dev/null || true
+
 echo ""
 echo "=== 安裝完成 ==="
 echo ""
-echo "桌面上已建立「會議記錄.app」，雙擊即可使用。"
+echo "雙擊桌面上的「會議記錄」即可使用。"
