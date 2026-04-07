@@ -20,7 +20,7 @@
 </head>
 <body class="bg-gray-50 min-h-screen">
 
-<div class="max-w-2xl mx-auto px-4 py-10">
+<div class="max-w-2xl mx-auto px-4 py-10 pb-16">
 
   <!-- Header -->
   <div class="mb-8">
@@ -255,6 +255,26 @@
     </div>
   </div>
 
+</div>
+
+<!-- 底部狀態列 -->
+<div id="status-bar" class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-2 flex items-center justify-between text-xs z-40">
+  <div class="flex items-center gap-3">
+    <!-- 監控狀態 -->
+    <div class="flex items-center gap-1.5">
+      <span id="bar-watch-dot" class="status-dot bg-gray-300"></span>
+      <span id="bar-watch-text" class="text-gray-400">監控：關閉</span>
+    </div>
+    <!-- 處理中提示 -->
+    <span id="bar-processing" class="hidden text-amber-600 flex items-center gap-1">
+      <span class="spinner"></span>
+      <span id="bar-processing-text">處理中...</span>
+    </span>
+  </div>
+  <div class="flex items-center gap-3">
+    <button id="bar-watch-btn" onclick="toggleWatchFromBar()" class="text-blue-600 hover:underline">啟動監控</button>
+    <button onclick="openWatchFolder()" class="text-gray-500 hover:underline">打開資料夾</button>
+  </div>
 </div>
 
 <script>
@@ -814,6 +834,36 @@ function openWatchFolder() {
   fetch('/watch/open', { method: 'POST' })
 }
 
+async function toggleWatchFromBar() {
+  await toggleWatch()
+  updateStatusBar()
+}
+
+async function updateStatusBar() {
+  try {
+    const res = await fetch('/watch')
+    const data = await res.json()
+    const dot = document.getElementById('bar-watch-dot')
+    const text = document.getElementById('bar-watch-text')
+    const btn = document.getElementById('bar-watch-btn')
+
+    if (data.running) {
+      dot.className = 'status-dot bg-green-500'
+      text.textContent = '監控：運行中'
+      text.className = 'text-green-600'
+      btn.textContent = '停止監控'
+    } else {
+      dot.className = 'status-dot bg-gray-300'
+      text.textContent = '監控：關閉'
+      text.className = 'text-gray-400'
+      btn.textContent = '啟動監控'
+    }
+  } catch {}
+}
+
+// 定時更新狀態列
+setInterval(updateStatusBar, 5000)
+
 // ===== Utils =====
 
 function escHtml(str) {
@@ -822,6 +872,7 @@ function escHtml(str) {
 
 // ===== Init =====
 checkStatus()
+updateStatusBar()
 </script>
 </body>
 </html>
