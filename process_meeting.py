@@ -107,12 +107,13 @@ def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print) -> st
 
     log("呼叫 Gemini 產生會議記錄...")
 
+    max_tokens = int(os.getenv("MAX_OUTPUT_TOKENS", "65536"))
     model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(
         [audio_file, prompt_text],
         generation_config=genai.GenerationConfig(
             temperature=0.3,
-            max_output_tokens=65536,
+            max_output_tokens=max_tokens,
         ),
     )
 

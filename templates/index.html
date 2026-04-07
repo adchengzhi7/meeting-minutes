@@ -156,6 +156,20 @@
         <p id="gemini-status" class="text-xs mt-2"></p>
       </div>
 
+      <!-- 輸出長度 -->
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-gray-900 mb-1">輸出詳細程度</h3>
+        <p class="text-xs text-gray-500 mb-3">控制會議記錄的詳細程度，越長越詳細</p>
+        <select id="input-output-length" onchange="saveOutputLength()"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="8192">精簡（30 分鐘以內）</option>
+          <option value="16384">標準（1 小時以內）</option>
+          <option value="32768">詳細（1-2 小時）</option>
+          <option value="65536" selected>完整（2 小時以上）</option>
+        </select>
+        <p id="output-length-status" class="text-xs mt-2"></p>
+      </div>
+
       <!-- Google Drive Folder -->
       <div class="bg-white border border-gray-200 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-900 mb-1">儲存位置</h3>
@@ -532,6 +546,11 @@ async function loadSettings() {
       } catch {}
     }
 
+    // Output length
+    if (data.MAX_OUTPUT_TOKENS) {
+      document.getElementById('input-output-length').value = data.MAX_OUTPUT_TOKENS
+    }
+
     // Prompt
     await loadPrompt()
 
@@ -757,6 +776,22 @@ async function optimizePrompt() {
   } finally {
     btn.textContent = origText
     btn.disabled = false
+  }
+}
+
+async function saveOutputLength() {
+  const val = document.getElementById('input-output-length').value
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ MAX_OUTPUT_TOKENS: val }),
+  })
+  const data = await res.json()
+  const status = document.getElementById('output-length-status')
+  if (data.ok) {
+    status.textContent = '已儲存'
+    status.className = 'text-xs mt-2 text-green-600'
+    setTimeout(() => { status.textContent = '' }, 2000)
   }
 }
 

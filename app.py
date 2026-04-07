@@ -239,7 +239,7 @@ def save_settings():
     current = _read_env_file(env_path)
 
     # 允許更新的欄位
-    allowed = {"GEMINI_API_KEY", "GDRIVE_FOLDER_ID", "WATCH_FOLDER", "ARCHIVE_FOLDER"}
+    allowed = {"GEMINI_API_KEY", "GDRIVE_FOLDER_ID", "WATCH_FOLDER", "ARCHIVE_FOLDER", "MAX_OUTPUT_TOKENS"}
     for key in allowed:
         if key in data and data[key]:
             current[key] = data[key]
