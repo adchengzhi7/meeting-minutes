@@ -1157,7 +1157,7 @@ async function refreshActivity() {
       queuePanel.classList.add('hidden')
     }
 
-    // 處理記錄（新的在上面）
+    // 處理記錄（新的在上面）— 只在記錄數量變化時重建 DOM，避免收合展開的 log
     const histEl = document.getElementById('act-history-list')
     const recent = (data.recent || []).slice().reverse()
 
@@ -1165,43 +1165,74 @@ async function refreshActivity() {
     const hasFailed = recent.some(r => r.status === 'error')
     document.getElementById('act-retry-all').classList.toggle('hidden', !hasFailed)
 
-    if (!recent.length) {
-      histEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">尚無處理記錄</p>'
-    } else {
-      // recent 是已反轉（新在前），但 index 需要對應原始 history 陣列
-      const totalHistory = (data.recent || []).length
-      histEl.innerHTML = recent.map((r, idx) => {
-        const isOk = r.status === 'done'
-        const statusDot = isOk ? 'bg-green-500' : 'bg-red-400'
-        const hasLogs = r.logs && r.logs.length > 0
-        // 原始 history index（recent 是倒序的）
-        const origIdx = totalHistory - 1 - idx
+    const newKey = recent.map(r => r.filename + r.time + r.status).join('|')
+    if (newKey !== _lastActHistoryKey) {
+      _lastActHistoryKey = newKey
 
-        return `
-        <div class="px-5 py-3">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2 min-w-0 flex-1">
-              <span class="status-dot ${statusDot} shrink-0"></span>
-              <span class="text-sm text-gray-800 truncate">${escHtml(r.filename)}</span>
-              <span class="text-xs text-gray-400 shrink-0">${escHtml(r.time)}</span>
+      if (!recent.length) {
+        histEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">尚無處理記錄</p>'
+      } else {
+        const totalHistory = (data.recent || []).length
+        histEl.innerHTML = recent.map((r, idx) => {
+          const isOk = r.status === 'done'
+          const statusDot = isOk ? 'bg-green-500' : 'bg-red-400'
+          const hasLogs = r.logs && r.logs.length > 0
+          const origIdx = totalHistory - 1 - idx
+          const logId = `act-log-${origIdx}`
+
+          return `
+          <div class="px-5 py-3" data-act-item="${origIdx}">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="status-dot ${statusDot} shrink-0"></span>
+                <span class="text-sm text-gray-800 dark:text-gray-200 truncate">${escHtml(r.filename)}</span>
+                <span class="text-xs text-gray-400 shrink-0">${escHtml(r.time)}</span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0 ml-2">
+                ${isOk && r.doc_url ? `<a href="${escHtml(r.doc_url)}" target="_blank" class="text-xs text-blue-600 hover:underline">開啟</a>` : ''}
+                ${!isOk ? `<button onclick="retryFailed(${origIdx})" class="text-xs text-red-600 hover:underline">重試</button>` : ''}
+                ${hasLogs ? `<button onclick="toggleActLog('${logId}')" class="text-xs text-gray-400 hover:text-gray-600">log</button>` : ''}
+                ${hasLogs ? `<button onclick="copyActLog('${logId}')" class="text-xs text-gray-400 hover:text-gray-600">複製</button>` : ''}
+              </div>
             </div>
-            <div class="flex items-center gap-2 shrink-0 ml-2">
-              ${isOk && r.doc_url ? `<a href="${escHtml(r.doc_url)}" target="_blank" class="text-xs text-blue-600 hover:underline">開啟</a>` : ''}
-              ${!isOk ? `<button onclick="retryFailed(${origIdx})" class="text-xs text-red-600 hover:underline">重試</button>` : ''}
-              ${hasLogs ? `<button onclick="toggleActLog(this)" class="text-xs text-gray-400 hover:text-gray-600">log</button>` : ''}
-            </div>
-          </div>
-          ${!isOk && r.error ? `<p class="text-xs text-red-400 mt-1">${escHtml(r.error)}</p>` : ''}
-          ${hasLogs ? `<div class="hidden mt-2 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg max-h-32 overflow-y-auto leading-relaxed act-log-detail">${r.logs.map(l => `<div>> ${escHtml(l)}</div>`).join('')}</div>` : ''}
-        </div>`
-      }).join('')
+            ${!isOk && r.error ? `<p class="text-xs text-red-400 mt-1">${escHtml(r.error)}</p>` : ''}
+            ${hasLogs ? `<div id="${logId}" class="hidden mt-2 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg max-h-32 overflow-y-auto leading-relaxed act-log-detail" data-log="${escHtml(r.logs.join('\n'))}">${r.logs.map(l => `<div>> ${escHtml(l)}</div>`).join('')}</div>` : ''}
+          </div>`
+        }).join('')
+
+        // 恢復之前展開的 log
+        _expandedLogs.forEach(id => {
+          const el = document.getElementById(id)
+          if (el) el.classList.remove('hidden')
+        })
+      }
     }
   } catch {}
 }
 
-function toggleActLog(btn) {
-  const detail = btn.closest('.px-5').querySelector('.act-log-detail')
-  if (detail) detail.classList.toggle('hidden')
+let _lastActHistoryKey = ''
+let _expandedLogs = new Set()
+
+function toggleActLog(logId) {
+  const el = document.getElementById(logId)
+  if (!el) return
+  const isHidden = el.classList.toggle('hidden')
+  if (isHidden) {
+    _expandedLogs.delete(logId)
+  } else {
+    _expandedLogs.add(logId)
+  }
+}
+
+function copyActLog(logId) {
+  const el = document.getElementById(logId)
+  if (!el) return
+  const text = el.dataset.log || el.innerText
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target
+    btn.textContent = '已複製'
+    setTimeout(() => { btn.textContent = '複製' }, 1500)
+  })
 }
 
 async function retryFailed(index) {
