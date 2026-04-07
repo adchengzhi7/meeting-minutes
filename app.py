@@ -126,29 +126,40 @@ def drive_create_folder():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    if "file" not in request.files:
+    """支援多檔批次上傳，回傳所有 job_id"""
+    files = request.files.getlist("file")
+    if not files or not files[0].filename:
         return jsonify({"error": "沒有檔案"}), 400
 
-    file = request.files["file"]
-    if not file.filename:
-        return jsonify({"error": "檔案名稱為空"}), 400
+    jobs = []
+    for file in files:
+        if not file.filename:
+            continue
+        job_id = str(uuid.uuid4())
+        save_path = UPLOAD_FOLDER / f"{job_id}_{file.filename}"
+        file.save(str(save_path))
 
-    # 儲存上傳檔案
-    job_id = str(uuid.uuid4())
-    save_path = UPLOAD_FOLDER / f"{job_id}_{file.filename}"
-    file.save(str(save_path))
+        _job_subscribers[job_id] = []
+        _job_logs[job_id] = []
+        _job_results[job_id] = {"status": "queued", "doc_url": None, "error": None}
+        _job_meta[job_id] = {"filename": file.filename, "started_at": None}
+        jobs.append({"job_id": job_id, "filename": file.filename, "path": str(save_path)})
 
-    # 建立 job broadcast + log buffer
-    _job_subscribers[job_id] = []
-    _job_logs[job_id] = []
-    _job_results[job_id] = {"status": "processing", "doc_url": None, "error": None}
-    _job_meta[job_id] = {"filename": file.filename, "started_at": datetime.now().isoformat()}
+    # 依序處理（排隊）
+    def _run_batch(batch):
+        for item in batch:
+            jid = item["job_id"]
+            _job_results[jid]["status"] = "processing"
+            _job_meta[jid]["started_at"] = datetime.now().isoformat()
+            _run_job(jid, item["path"])
 
-    # 背景處理
-    thread = threading.Thread(target=_run_job, args=(job_id, str(save_path)), daemon=True)
+    thread = threading.Thread(target=_run_batch, args=(jobs,), daemon=True)
     thread.start()
 
-    return jsonify({"job_id": job_id})
+    # 單檔回傳保持向下相容
+    if len(jobs) == 1:
+        return jsonify({"job_id": jobs[0]["job_id"]})
+    return jsonify({"jobs": [{"job_id": j["job_id"], "filename": j["filename"]} for j in jobs]})
 
 
 @app.route("/jobs/active")

@@ -70,9 +70,9 @@
       ondrop="onDrop(event)">
       <div class="text-4xl mb-3">🎙️</div>
       <p class="text-gray-700 font-medium">點擊或拖放會議錄音/錄影</p>
-      <p class="text-xs text-gray-400 mt-2">mp4 · mkv · mov · m4a · mp3 · wav · flac · aac · webm</p>
+      <p class="text-xs text-gray-400 mt-2">支援多檔批次上傳 · mp4 · mkv · mov · m4a · mp3 · wav · flac · aac · webm</p>
     </div>
-    <input type="file" id="file-input" class="hidden"
+    <input type="file" id="file-input" class="hidden" multiple
       accept=".mp4,.mkv,.mov,.avi,.webm,.m4a,.mp3,.wav,.ogg,.flac,.aac,.wma"
       onchange="onFileSelected(this)">
 
@@ -383,49 +383,115 @@ function onDragLeave(e) {
 function onDrop(e) {
   e.preventDefault()
   document.getElementById('drop-zone').classList.remove('drop-active')
-  const file = e.dataTransfer.files[0]
-  if (file) startUpload(file)
+  const files = Array.from(e.dataTransfer.files)
+  if (files.length) startUpload(files)
 }
 
 function onFileSelected(input) {
-  if (input.files[0]) startUpload(input.files[0])
+  const files = Array.from(input.files)
+  if (files.length) startUpload(files)
 }
 
-async function startUpload(file) {
+let batchJobs = []  // [{job_id, filename, status}]
+let currentBatchIndex = 0
+
+async function startUpload(files) {
   document.getElementById('drop-zone').classList.add('hidden')
   document.getElementById('processing-panel').classList.remove('hidden')
-  document.getElementById('proc-filename').textContent = file.name
-  document.getElementById('proc-status').textContent = '上傳中...'
   document.getElementById('result-panel').classList.add('hidden')
   document.getElementById('error-panel').classList.add('hidden')
   document.getElementById('log-panel').innerHTML = ''
+  batchJobs = []
+  currentBatchIndex = 0
+
+  const isBatch = files.length > 1
+
+  if (isBatch) {
+    document.getElementById('proc-filename').textContent = `${files.length} 個檔案`
+    document.getElementById('proc-status').textContent = '上傳中...'
+  } else {
+    document.getElementById('proc-filename').textContent = files[0].name
+    document.getElementById('proc-status').textContent = '上傳中...'
+  }
 
   const formData = new FormData()
-  formData.append('file', file)
+  files.forEach(f => formData.append('file', f))
 
-  let jobId
+  let jobIds
   try {
     const res = await fetch('/upload', { method: 'POST', body: formData })
     const data = await res.json()
     if (data.error) throw new Error(data.error)
-    jobId = data.job_id
+
+    if (data.jobs) {
+      jobIds = data.jobs
+    } else {
+      jobIds = [{ job_id: data.job_id, filename: files[0].name }]
+    }
   } catch (err) {
     showError(err.message)
     return
   }
 
-  document.getElementById('proc-status').textContent = '處理中...'
+  batchJobs = jobIds.map(j => ({ ...j, status: 'queued' }))
+
+  if (isBatch) {
+    // 顯示批次進度
+    updateBatchUI()
+  }
+
   startTimer()
-  listenToJob(jobId)
+  listenToBatch(0)
 }
 
-function listenToJob(jobId) {
+function updateBatchUI() {
+  const total = batchJobs.length
+  const done = batchJobs.filter(j => j.status === 'done').length
+  const failed = batchJobs.filter(j => j.status === 'error').length
+  const current = batchJobs.find(j => j.status === 'processing')
+
+  document.getElementById('proc-filename').textContent = current
+    ? `[${done + failed + 1}/${total}] ${current.filename}`
+    : `${total} 個檔案`
+  document.getElementById('proc-status').textContent = `完成 ${done}/${total}${failed ? `（${failed} 失敗）` : ''}`
+}
+
+function listenToBatch(index) {
+  if (index >= batchJobs.length) {
+    // 全部完成
+    stopTimer()
+    document.getElementById('proc-spinner').style.display = 'none'
+    const done = batchJobs.filter(j => j.status === 'done')
+    const failed = batchJobs.filter(j => j.status === 'error')
+
+    if (done.length > 0) {
+      document.getElementById('proc-status').textContent = `全部完成（${done.length} 成功${failed.length ? `、${failed.length} 失敗` : ''}）`
+      document.getElementById('doc-link').href = done[done.length - 1].doc_url
+      document.getElementById('result-panel').classList.remove('hidden')
+      sendNotification('批次處理完成', `${done.length} 個檔案已產生會議記錄`)
+    } else {
+      showError('所有檔案處理失敗')
+    }
+    return
+  }
+
+  batchJobs[index].status = 'processing'
+  if (batchJobs.length > 1) updateBatchUI()
+  currentBatchIndex = index
+
   const logPanel = document.getElementById('log-panel')
-  const es = new EventSource(`/stream/${jobId}`)
+  if (batchJobs.length > 1) {
+    const sep = document.createElement('div')
+    sep.className = 'text-gray-500 mt-2 border-t border-gray-700 pt-1'
+    sep.textContent = `── ${batchJobs[index].filename} ──`
+    logPanel.appendChild(sep)
+    logPanel.scrollTop = logPanel.scrollHeight
+  }
+
+  const es = new EventSource(`/stream/${batchJobs[index].job_id}`)
 
   es.onmessage = (e) => {
     const data = JSON.parse(e.data)
-
     if (data.type === 'ping') return
 
     if (data.type === 'log') {
@@ -438,24 +504,45 @@ function listenToJob(jobId) {
 
     if (data.type === 'done') {
       es.close()
-      stopTimer()
-      document.getElementById('proc-spinner').style.display = 'none'
-
       if (data.status === 'done' && data.doc_url) {
-        document.getElementById('proc-status').textContent = '完成'
-        document.getElementById('doc-link').href = data.doc_url
-        document.getElementById('result-panel').classList.remove('hidden')
-        sendNotification('會議記錄完成', document.getElementById('proc-filename').textContent, data.doc_url)
+        batchJobs[index].status = 'done'
+        batchJobs[index].doc_url = data.doc_url
+        if (batchJobs.length === 1) {
+          stopTimer()
+          document.getElementById('proc-spinner').style.display = 'none'
+          document.getElementById('proc-status').textContent = '完成'
+          document.getElementById('doc-link').href = data.doc_url
+          document.getElementById('result-panel').classList.remove('hidden')
+          sendNotification('會議記錄完成', batchJobs[0].filename, data.doc_url)
+        } else {
+          listenToBatch(index + 1)
+        }
       } else {
-        showError(data.error || '未知錯誤')
+        batchJobs[index].status = 'error'
+        if (batchJobs.length === 1) {
+          showError(data.error || '未知錯誤')
+        } else {
+          listenToBatch(index + 1)
+        }
       }
     }
   }
 
   es.onerror = () => {
     es.close()
-    showError('連線中斷，請重試')
+    if (batchJobs.length === 1) {
+      showError('連線中斷，請重試')
+    } else {
+      batchJobs[index].status = 'error'
+      listenToBatch(index + 1)
+    }
   }
+}
+
+function listenToJob(jobId) {
+  // 單檔接回（用於 reconnect）
+  batchJobs = [{ job_id: jobId, filename: document.getElementById('proc-filename').textContent, status: 'processing' }]
+  listenToBatch(0)
 }
 
 function showError(msg) {

@@ -54,6 +54,9 @@ def _ensure_gemini():
         _gemini_configured = True
 
 
+COMPRESS_THRESHOLD_MB = int(os.getenv("COMPRESS_THRESHOLD_MB", "100"))
+
+
 def extract_audio(input_path: str, log=print) -> str:
     """從影片檔抽取音軌為 m4a"""
     suffix = Path(input_path).suffix.lower()
@@ -88,6 +91,35 @@ def extract_audio(input_path: str, log=print) -> str:
 
     log(f"音軌抽取完成")
     return output_path
+
+
+def compress_audio(audio_path: str, log=print) -> str:
+    """大檔案壓縮：超過閾值時降為 64kbps mono 以減少上傳時間"""
+    file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)
+
+    if file_size_mb <= COMPRESS_THRESHOLD_MB:
+        return audio_path
+
+    log(f"檔案較大（{file_size_mb:.0f} MB），壓縮中...")
+    compressed_path = tempfile.mktemp(suffix=".m4a")
+    cmd = [
+        "ffmpeg", "-i", audio_path,
+        "-vn",
+        "-acodec", "aac",
+        "-b:a", "64k",
+        "-ac", "1",  # mono
+        "-y",
+        compressed_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        log("壓縮失敗，使用原始檔案")
+        return audio_path
+
+    new_size_mb = Path(compressed_path).stat().st_size / (1024 * 1024)
+    log(f"壓縮完成：{file_size_mb:.0f} MB → {new_size_mb:.0f} MB")
+    return compressed_path
 
 
 def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print, max_retries: int = 3) -> str:
@@ -366,6 +398,14 @@ def _add_runs(paragraph, text: str):
                 run.bold = True
 
 
+def _add_language_hint(prompt_text: str) -> str:
+    """加入多語言偵測指示，讓 Gemini 根據錄音語言自動調整輸出"""
+    hint = "\n\n## 語言偵測\n請先辨識錄音中使用的主要語言。如果是中文，使用繁體中文輸出；如果是英文，使用英文輸出；如果是其他語言，使用該語言輸出。如果會議中混用多種語言，以使用最多的語言為主要輸出語言，但保留專有名詞的原始語言。"
+    if "語言偵測" not in prompt_text:
+        return prompt_text + hint
+    return prompt_text
+
+
 def _save_history(original_name: str, doc_title: str, doc_url: str):
     """儲存處理記錄到 history.json"""
     import json as _json
@@ -413,11 +453,18 @@ def process_file(file_path: str, auto_open: bool = True, log=print):
     audio_path = extract_audio(str(file_path), log=log)
     temp_audio = audio_path != str(file_path)
 
+    # 大檔案壓縮
+    compressed_path = compress_audio(audio_path, log=log)
+    temp_compressed = compressed_path != audio_path
+
     try:
         prompt_path = Path(__file__).parent / "prompt.md"
         prompt_text = prompt_path.read_text(encoding="utf-8")
 
-        meeting_notes = transcribe_and_summarize(audio_path, prompt_text, log=log)
+        # 加入語言偵測提示
+        prompt_text = _add_language_hint(prompt_text)
+
+        meeting_notes = transcribe_and_summarize(compressed_path, prompt_text, log=log)
 
         # 從回覆第一行抓 AI 摘要標題
         lines = meeting_notes.strip().split("\n")
@@ -448,6 +495,8 @@ def process_file(file_path: str, auto_open: bool = True, log=print):
         return doc_url
 
     finally:
+        if temp_compressed and os.path.exists(compressed_path):
+            os.remove(compressed_path)
         if temp_audio and os.path.exists(audio_path):
             os.remove(audio_path)
 
