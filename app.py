@@ -58,9 +58,11 @@ _watch_progress = {
     "filename": "",
     "step": "",
     "started_at": None,
-    "logs": [],  # 當前處理的 log 記錄
+    "logs": [],
+    "queue": [],  # 排隊中的檔案名稱
     "history": _load_watch_history(),
 }
+_watch_queue = queue.Queue()  # 檔案處理佇列
 
 
 # ===== Routes =====
@@ -594,8 +596,95 @@ def get_watch_status():
         "step": _watch_progress["step"],
         "elapsed": elapsed,
         "logs": _watch_progress["logs"][-30:],
+        "queue": list(_watch_progress["queue"]),
         "recent": _watch_progress["history"][-20:],
     })
+
+
+def _wait_file_ready(fp: Path):
+    """等待檔案寫入完成（大小連續 3 秒不變）"""
+    import time as _time
+    prev_size = -1
+    stable = 0
+    for _ in range(300):
+        try:
+            sz = fp.stat().st_size
+        except FileNotFoundError:
+            return False
+        if sz == prev_size and sz > 0:
+            stable += 1
+            if stable >= 3:
+                return True
+        else:
+            stable = 0
+        prev_size = sz
+        _time.sleep(1)
+    return True
+
+
+def _watch_worker():
+    """佇列工作者：依序處理檔案，一次只處理一個"""
+    while True:
+        fp = _watch_queue.get()
+        if fp is None:
+            break
+
+        # 從排隊列表移除
+        try:
+            _watch_progress["queue"].remove(fp.name)
+        except ValueError:
+            pass
+
+        if not fp.exists():
+            continue
+
+        if not _wait_file_ready(fp):
+            continue
+
+        _watch_progress["active"] = True
+        _watch_progress["filename"] = fp.name
+        _watch_progress["step"] = "準備處理..."
+        _watch_progress["started_at"] = datetime.now()
+        _watch_progress["logs"] = []
+
+        def log(msg):
+            _watch_progress["step"] = msg
+            _watch_progress["logs"].append(msg)
+
+        try:
+            from process_meeting import process_file
+            doc_url = process_file(str(fp), auto_open=True, log=log)
+            record = {
+                "filename": fp.name,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "status": "done" if doc_url else "error",
+                "doc_url": doc_url,
+                "logs": list(_watch_progress["logs"]),
+            }
+            _watch_progress["history"].append(record)
+            _save_watch_history(_watch_progress["history"])
+        except Exception as e:
+            record = {
+                "filename": fp.name,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "status": "error",
+                "error": str(e),
+                "logs": list(_watch_progress["logs"]),
+            }
+            _watch_progress["history"].append(record)
+            _save_watch_history(_watch_progress["history"])
+        finally:
+            _watch_progress["active"] = False
+            _watch_progress["filename"] = ""
+            _watch_progress["step"] = ""
+            _watch_progress["started_at"] = None
+            _watch_progress["logs"] = []
+
+
+def _enqueue_file(fp: Path):
+    """將檔案加入處理佇列"""
+    _watch_progress["queue"].append(fp.name)
+    _watch_queue.put(fp)
 
 
 def _create_watcher():
@@ -607,10 +696,9 @@ def _create_watcher():
 
     WATCH_FOLDER.mkdir(parents=True, exist_ok=True)
 
-    class ProgressHandler(FileSystemEventHandler):
-        def __init__(self):
-            self._processing = set()
+    _seen = set()
 
+    class QueueHandler(FileSystemEventHandler):
         def on_created(self, event):
             if event.is_directory:
                 return
@@ -621,71 +709,12 @@ def _create_watcher():
                 return
             if fp.suffix.lower() not in SUPPORTED_FORMATS:
                 return
-            if str(fp) in self._processing:
+            if str(fp) in _seen:
                 return
-            self._processing.add(str(fp))
-            threading.Thread(target=self._process, args=(fp,), daemon=True).start()
+            _seen.add(str(fp))
+            _enqueue_file(fp)
 
-        def _process(self, fp):
-            import time as _time
-            prev_size = -1
-            stable = 0
-            for _ in range(300):
-                try:
-                    sz = fp.stat().st_size
-                except FileNotFoundError:
-                    self._processing.discard(str(fp))
-                    return
-                if sz == prev_size and sz > 0:
-                    stable += 1
-                    if stable >= 3:
-                        break
-                else:
-                    stable = 0
-                prev_size = sz
-                _time.sleep(1)
-
-            _watch_progress["active"] = True
-            _watch_progress["filename"] = fp.name
-            _watch_progress["step"] = "準備處理..."
-            _watch_progress["started_at"] = datetime.now()
-            _watch_progress["logs"] = []
-
-            def log(msg):
-                _watch_progress["step"] = msg
-                _watch_progress["logs"].append(msg)
-
-            try:
-                from process_meeting import process_file
-                doc_url = process_file(str(fp), auto_open=True, log=log)
-                record = {
-                    "filename": fp.name,
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "status": "done" if doc_url else "error",
-                    "doc_url": doc_url,
-                    "logs": list(_watch_progress["logs"]),
-                }
-                _watch_progress["history"].append(record)
-                _save_watch_history(_watch_progress["history"])
-            except Exception as e:
-                record = {
-                    "filename": fp.name,
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "status": "error",
-                    "error": str(e),
-                    "logs": list(_watch_progress["logs"]),
-                }
-                _watch_progress["history"].append(record)
-                _save_watch_history(_watch_progress["history"])
-            finally:
-                _watch_progress["active"] = False
-                _watch_progress["filename"] = ""
-                _watch_progress["step"] = ""
-                _watch_progress["started_at"] = None
-                _watch_progress["logs"] = []
-                self._processing.discard(str(fp))
-
-    handler = ProgressHandler()
+    handler = QueueHandler()
     observer = Observer()
     observer.schedule(handler, str(WATCH_FOLDER), recursive=False)
     observer.daemon = True
@@ -693,17 +722,18 @@ def _create_watcher():
     _watcher_observer = observer
     _watcher_thread = observer
 
+    # 啟動佇列工作者
+    threading.Thread(target=_watch_worker, daemon=True).start()
+
+    # 掃描已有的檔案
     existing = [f for f in WATCH_FOLDER.iterdir()
                  if f.is_file()
                  and not f.name.startswith(".")
                  and not f.name.startswith("~")
                  and f.suffix.lower() in SUPPORTED_FORMATS]
-    if existing:
-        def _process_existing():
-            for fp in existing:
-                handler._processing.add(str(fp))
-                handler._process(fp)
-        threading.Thread(target=_process_existing, daemon=True).start()
+    for fp in existing:
+        _seen.add(str(fp))
+        _enqueue_file(fp)
 
     return WATCH_FOLDER, len(existing)
 

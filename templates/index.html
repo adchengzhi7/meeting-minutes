@@ -164,6 +164,12 @@
       <div id="act-log-panel" class="mt-3 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg h-32 overflow-y-auto leading-relaxed"></div>
     </div>
 
+    <!-- 排隊中 -->
+    <div id="act-queue" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 fade-in">
+      <h3 class="text-sm font-semibold text-blue-800 mb-2">排隊中</h3>
+      <div id="act-queue-list" class="space-y-1"></div>
+    </div>
+
     <!-- 快速設定 -->
     <div class="bg-white border border-gray-200 rounded-xl p-5 mb-4">
       <h3 class="text-sm font-semibold text-gray-900 mb-3">快速設定</h3>
@@ -1091,6 +1097,22 @@ async function refreshActivity() {
       procPanel.classList.add('hidden')
     }
 
+    // 排隊中
+    const queuePanel = document.getElementById('act-queue')
+    const queueList = document.getElementById('act-queue-list')
+    const q = data.queue || []
+    if (q.length > 0) {
+      queuePanel.classList.remove('hidden')
+      queueList.innerHTML = q.map((name, i) => `
+        <div class="flex items-center gap-2 text-xs text-blue-700">
+          <span class="text-blue-400">${i + 1}.</span>
+          <span>${escHtml(name)}</span>
+        </div>
+      `).join('')
+    } else {
+      queuePanel.classList.add('hidden')
+    }
+
     // 處理記錄（新的在上面）
     const histEl = document.getElementById('act-history-list')
     const recent = (data.recent || []).slice().reverse()
@@ -1235,7 +1257,9 @@ async function updateStatusBar() {
       const elapsed = data.elapsed || 0
       const min = String(Math.floor(elapsed / 60)).padStart(2, '0')
       const sec = String(elapsed % 60).padStart(2, '0')
-      procText.textContent = `${data.filename} — ${data.step}（${min}:${sec}）`
+      const qLen = (data.queue || []).length
+      const qText = qLen > 0 ? ` +${qLen} 排隊` : ''
+      procText.textContent = `${data.filename} — ${data.step}（${min}:${sec}）${qText}`
     } else {
       proc.classList.add('hidden')
     }
