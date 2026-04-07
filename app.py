@@ -36,12 +36,30 @@ _watcher_thread = None
 _watcher_observer = None
 
 # 監控處理進度
+def _load_watch_history() -> list:
+    """從檔案載入監控處理記錄"""
+    path = PROJECT_DIR / "watch_history.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_watch_history(history: list):
+    """儲存監控處理記錄到檔案"""
+    path = PROJECT_DIR / "watch_history.json"
+    path.write_text(json.dumps(history[-100:], ensure_ascii=False, indent=2))
+
+
 _watch_progress = {
     "active": False,
     "filename": "",
     "step": "",
     "started_at": None,
-    "history": [],  # 最近完成的檔案
+    "logs": [],  # 當前處理的 log 記錄
+    "history": _load_watch_history(),
 }
 
 
@@ -575,7 +593,8 @@ def get_watch_status():
         "filename": _watch_progress["filename"],
         "step": _watch_progress["step"],
         "elapsed": elapsed,
-        "recent": _watch_progress["history"][-5:],
+        "logs": _watch_progress["logs"][-30:],
+        "recent": _watch_progress["history"][-20:],
     })
 
 
@@ -630,31 +649,40 @@ def _create_watcher():
             _watch_progress["filename"] = fp.name
             _watch_progress["step"] = "準備處理..."
             _watch_progress["started_at"] = datetime.now()
+            _watch_progress["logs"] = []
 
             def log(msg):
                 _watch_progress["step"] = msg
+                _watch_progress["logs"].append(msg)
 
             try:
                 from process_meeting import process_file
                 doc_url = process_file(str(fp), auto_open=True, log=log)
-                _watch_progress["history"].append({
+                record = {
                     "filename": fp.name,
-                    "time": datetime.now().strftime("%H:%M"),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "status": "done" if doc_url else "error",
                     "doc_url": doc_url,
-                })
+                    "logs": list(_watch_progress["logs"]),
+                }
+                _watch_progress["history"].append(record)
+                _save_watch_history(_watch_progress["history"])
             except Exception as e:
-                _watch_progress["history"].append({
+                record = {
                     "filename": fp.name,
-                    "time": datetime.now().strftime("%H:%M"),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "status": "error",
                     "error": str(e),
-                })
+                    "logs": list(_watch_progress["logs"]),
+                }
+                _watch_progress["history"].append(record)
+                _save_watch_history(_watch_progress["history"])
             finally:
                 _watch_progress["active"] = False
                 _watch_progress["filename"] = ""
                 _watch_progress["step"] = ""
                 _watch_progress["started_at"] = None
+                _watch_progress["logs"] = []
                 self._processing.discard(str(fp))
 
     handler = ProgressHandler()

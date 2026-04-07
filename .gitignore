@@ -6,6 +6,7 @@ token.json
 service-account.json
 credentials.json
 history.json
+watch_history.json
 output/
 *.icns
 icon.iconset/

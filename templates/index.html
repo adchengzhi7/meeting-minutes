@@ -37,6 +37,7 @@
   <!-- Tabs -->
   <div class="flex gap-6 border-b border-gray-200 mb-6">
     <button onclick="showTab('upload')" id="tab-upload" class="tab-active pb-3 text-sm font-medium transition-colors">上傳處理</button>
+    <button onclick="showTab('activity')" id="tab-activity" class="tab-inactive pb-3 text-sm font-medium transition-colors">活動</button>
     <button onclick="showTab('history')" id="tab-history" class="tab-inactive pb-3 text-sm font-medium transition-colors">歷史記錄</button>
     <button onclick="showTab('settings')" id="tab-settings" class="tab-inactive pb-3 text-sm font-medium transition-colors">設定</button>
   </div>
@@ -123,6 +124,83 @@
           <button onclick="resetUpload()" class="mt-2 text-sm text-red-600 hover:underline">重試</button>
         </div>
 
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== Tab: Activity ===== -->
+  <div id="panel-activity" class="hidden">
+
+    <!-- 監控狀態 -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span id="act-watch-dot" class="status-dot bg-gray-300"></span>
+          <h3 class="text-sm font-semibold text-gray-900">資料夾監控</h3>
+        </div>
+        <button id="act-watch-btn" onclick="toggleWatch(); setTimeout(loadActivity, 500)"
+          class="px-3 py-1.5 text-xs rounded-lg border transition-colors">
+          載入中...
+        </button>
+      </div>
+      <p id="act-folder-path" class="text-xs text-gray-400 font-mono mb-2"></p>
+      <div class="flex gap-2">
+        <button onclick="openWatchFolder()" class="text-xs text-blue-600 hover:underline">打開資料夾</button>
+      </div>
+    </div>
+
+    <!-- 即時處理中 -->
+    <div id="act-processing" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-5 mb-4 fade-in">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="spinner"></span>
+        <h3 class="text-sm font-semibold text-amber-800">處理中</h3>
+        <span id="act-proc-timer" class="ml-auto text-xs font-mono text-amber-600"></span>
+      </div>
+      <p id="act-proc-filename" class="text-sm text-amber-900 font-medium"></p>
+      <p id="act-proc-step" class="text-xs text-amber-700 mt-1"></p>
+
+      <!-- 即時 log -->
+      <div id="act-log-panel" class="mt-3 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg h-32 overflow-y-auto leading-relaxed"></div>
+    </div>
+
+    <!-- 快速設定 -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">快速設定</h3>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">輸出語言</label>
+          <select id="act-language" onchange="quickSaveSetting('OUTPUT_LANGUAGE', this.value)"
+            class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="auto">自動偵測</option>
+            <option value="zh-TW">繁體中文</option>
+            <option value="zh-CN">簡體中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">輸出詳細度</label>
+          <select id="act-length" onchange="quickSaveSetting('MAX_OUTPUT_TOKENS', this.value)"
+            class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="8192">精簡</option>
+            <option value="16384">標準</option>
+            <option value="32768">詳細</option>
+            <option value="65536">完整</option>
+          </select>
+        </div>
+      </div>
+      <p id="act-setting-status" class="text-xs mt-2 text-green-600"></p>
+    </div>
+
+    <!-- 處理記錄 -->
+    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div class="px-5 py-3 border-b border-gray-100">
+        <h3 class="text-sm font-semibold text-gray-900">處理記錄</h3>
+      </div>
+      <div id="act-history-list" class="divide-y divide-gray-100">
+        <p class="text-sm text-gray-400 text-center py-6">載入中...</p>
       </div>
     </div>
 
@@ -313,12 +391,13 @@
 let currentTab = 'upload'
 
 function showTab(name) {
-  ['upload', 'history', 'settings'].forEach(t => {
+  ['upload', 'activity', 'history', 'settings'].forEach(t => {
     document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== name)
     const btn = document.getElementById(`tab-${t}`)
     btn.className = `${t === name ? 'tab-active' : 'tab-inactive'} pb-3 text-sm font-medium transition-colors`
   })
   currentTab = name
+  if (name === 'activity') loadActivity()
   if (name === 'history') loadHistory()
   if (name === 'settings') loadSettings()
 }
@@ -946,6 +1025,132 @@ async function savePrompt() {
     status.className = 'text-xs mt-2 text-right text-red-600'
   }
   setTimeout(() => { status.textContent = '' }, 2000)
+}
+
+// ===== Activity =====
+
+let _activityInterval = null
+
+async function loadActivity() {
+  // 載入目前設定值
+  try {
+    const sRes = await fetch('/settings')
+    const settings = await sRes.json()
+    if (settings.OUTPUT_LANGUAGE) document.getElementById('act-language').value = settings.OUTPUT_LANGUAGE
+    if (settings.MAX_OUTPUT_TOKENS) document.getElementById('act-length').value = settings.MAX_OUTPUT_TOKENS
+  } catch {}
+
+  // 載入監控狀態
+  await refreshActivity()
+
+  // 在活動頁時高頻更新
+  if (_activityInterval) clearInterval(_activityInterval)
+  _activityInterval = setInterval(() => {
+    if (currentTab === 'activity') refreshActivity()
+    else { clearInterval(_activityInterval); _activityInterval = null }
+  }, 1500)
+}
+
+async function refreshActivity() {
+  try {
+    const res = await fetch('/watch')
+    const data = await res.json()
+
+    // 監控狀態
+    const dot = document.getElementById('act-watch-dot')
+    const btn = document.getElementById('act-watch-btn')
+    document.getElementById('act-folder-path').textContent = data.folder
+
+    if (data.running) {
+      dot.className = 'status-dot bg-green-500'
+      btn.textContent = '停止監控'
+      btn.className = 'px-3 py-1.5 text-xs rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors'
+    } else {
+      dot.className = 'status-dot bg-gray-300'
+      btn.textContent = '啟動監控'
+      btn.className = 'px-3 py-1.5 text-xs rounded-lg border border-green-200 text-green-600 hover:bg-green-50 transition-colors'
+    }
+
+    // 處理中
+    const procPanel = document.getElementById('act-processing')
+    if (data.processing) {
+      procPanel.classList.remove('hidden')
+      document.getElementById('act-proc-filename').textContent = data.filename
+      document.getElementById('act-proc-step').textContent = data.step
+      const elapsed = data.elapsed || 0
+      const min = String(Math.floor(elapsed / 60)).padStart(2, '0')
+      const sec = String(elapsed % 60).padStart(2, '0')
+      document.getElementById('act-proc-timer').textContent = `${min}:${sec}`
+
+      // 即時 log
+      const logPanel = document.getElementById('act-log-panel')
+      const logs = data.logs || []
+      logPanel.innerHTML = logs.map(l => `<div>> ${escHtml(l)}</div>`).join('')
+      logPanel.scrollTop = logPanel.scrollHeight
+    } else {
+      procPanel.classList.add('hidden')
+    }
+
+    // 處理記錄（新的在上面）
+    const histEl = document.getElementById('act-history-list')
+    const recent = (data.recent || []).slice().reverse()
+
+    if (!recent.length) {
+      histEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">尚無處理記錄</p>'
+    } else {
+      histEl.innerHTML = recent.map((r, idx) => {
+        const isOk = r.status === 'done'
+        const statusDot = isOk ? 'bg-green-500' : 'bg-red-400'
+        const statusText = isOk ? '完成' : '失敗'
+        const hasLogs = r.logs && r.logs.length > 0
+
+        return `
+        <div class="px-5 py-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+              <span class="status-dot ${statusDot} shrink-0"></span>
+              <span class="text-sm text-gray-800 truncate">${escHtml(r.filename)}</span>
+              <span class="text-xs text-gray-400 shrink-0">${escHtml(r.time)}</span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 ml-2">
+              ${isOk && r.doc_url ? `<a href="${escHtml(r.doc_url)}" target="_blank" class="text-xs text-blue-600 hover:underline">開啟</a>` : ''}
+              ${!isOk && r.error ? `<span class="text-xs text-red-500" title="${escHtml(r.error)}">錯誤</span>` : ''}
+              ${hasLogs ? `<button onclick="toggleActLog(this)" class="text-xs text-gray-400 hover:text-gray-600">log</button>` : ''}
+            </div>
+          </div>
+          ${hasLogs ? `<div class="hidden mt-2 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg max-h-32 overflow-y-auto leading-relaxed act-log-detail">${r.logs.map(l => `<div>> ${escHtml(l)}</div>`).join('')}</div>` : ''}
+        </div>`
+      }).join('')
+    }
+  } catch {}
+}
+
+function toggleActLog(btn) {
+  const detail = btn.closest('.px-5').querySelector('.act-log-detail')
+  if (detail) detail.classList.toggle('hidden')
+}
+
+async function quickSaveSetting(key, value) {
+  const body = {}
+  body[key] = value
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json()
+  const status = document.getElementById('act-setting-status')
+  if (data.ok) {
+    status.textContent = '已儲存'
+    setTimeout(() => { status.textContent = '' }, 2000)
+
+    // 同步設定頁的 UI
+    if (key === 'OUTPUT_LANGUAGE') {
+      document.getElementById('input-output-language').value = value
+    } else if (key === 'MAX_OUTPUT_TOKENS') {
+      document.getElementById('input-output-length').value = value
+    }
+  }
 }
 
 // ===== Watch =====
