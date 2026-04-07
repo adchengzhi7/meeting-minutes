@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-WATCH_FOLDER = Path(os.getenv("WATCH_FOLDER", "~/MeetingDrop")).expanduser()
+WATCH_FOLDER = Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()
 
 
 class MeetingFileHandler(FileSystemEventHandler):

@@ -213,7 +213,10 @@
           </button>
         </div>
         <p class="text-xs text-gray-500 mb-2">丟檔案進資料夾自動處理，完成後收到系統通知</p>
-        <p id="watch-folder-path" class="text-xs text-gray-400 font-mono"></p>
+        <div class="flex items-center gap-2">
+          <p id="watch-folder-path" class="text-xs text-gray-400 font-mono flex-1"></p>
+          <button onclick="openWatchFolder()" class="text-xs text-blue-600 hover:underline shrink-0">打開資料夾</button>
+        </div>
         <p id="watch-status-msg" class="text-xs mt-1"></p>
       </div>
 
@@ -729,6 +732,10 @@ async function toggleWatch() {
     msg.textContent = '操作失敗'
     msg.className = 'text-xs mt-1 text-red-600'
   }
+}
+
+function openWatchFolder() {
+  fetch('/watch/open', { method: 'POST' })
 }
 
 // ===== Utils =====

@@ -23,7 +23,7 @@ app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4GB
 UPLOAD_FOLDER = Path("/tmp/meeting-minutes-uploads")
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
-ARCHIVE_FOLDER = Path(os.getenv("ARCHIVE_FOLDER", "~/MeetingDrop/processed")).expanduser()
+ARCHIVE_FOLDER = Path(os.getenv("ARCHIVE_FOLDER", "~/Desktop/MeetingDrop/processed")).expanduser()
 
 # job_id → queue of log messages
 _job_queues: dict[str, queue.Queue] = {}
@@ -267,7 +267,7 @@ def get_watch_status():
     """取得資料夾監控狀態"""
     return jsonify({
         "running": _watcher_thread is not None and _watcher_thread.is_alive(),
-        "folder": str(Path(os.getenv("WATCH_FOLDER", "~/MeetingDrop")).expanduser()),
+        "folder": str(Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()),
     })
 
 
@@ -302,6 +302,16 @@ def stop_watch():
         _watcher_observer.stop()
         _watcher_observer = None
         _watcher_thread = None
+    return jsonify({"ok": True})
+
+
+@app.route("/watch/open", methods=["POST"])
+def open_watch_folder():
+    """在 Finder 打開監控資料夾"""
+    import subprocess
+    folder = Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()
+    folder.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["open", str(folder)])
     return jsonify({"ok": True})
 
 
