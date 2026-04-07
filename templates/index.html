@@ -222,12 +222,28 @@
 
       <!-- Prompt 編輯 -->
       <div class="bg-white border border-gray-200 rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-gray-900 mb-1">Prompt 範本</h3>
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-sm font-semibold text-gray-900">Prompt 範本</h3>
+        </div>
         <p class="text-xs text-gray-500 mb-3">調整 Gemini 產生會議記錄的格式與規則</p>
+
+        <!-- 範本選擇 -->
+        <div class="flex flex-wrap gap-2 mb-3">
+          <button onclick="loadTemplate('standard')" class="prompt-tmpl-btn px-3 py-1.5 text-xs rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors" data-tmpl="standard">標準會議記錄</button>
+          <button onclick="loadTemplate('concise')" class="prompt-tmpl-btn px-3 py-1.5 text-xs rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors" data-tmpl="concise">簡潔摘要</button>
+          <button onclick="loadTemplate('detailed')" class="prompt-tmpl-btn px-3 py-1.5 text-xs rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors" data-tmpl="detailed">詳細逐字稿</button>
+          <button onclick="loadTemplate('english')" class="prompt-tmpl-btn px-3 py-1.5 text-xs rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors" data-tmpl="english">English</button>
+          <button onclick="loadTemplate('action')" class="prompt-tmpl-btn px-3 py-1.5 text-xs rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors" data-tmpl="action">純待辦事項</button>
+        </div>
+
         <textarea id="prompt-editor" rows="12"
           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
           placeholder="載入中..."></textarea>
-        <div class="flex justify-end mt-2">
+        <div class="flex items-center justify-between mt-2">
+          <button onclick="optimizePrompt()" id="optimize-btn"
+            class="px-3 py-2 border border-purple-200 text-purple-600 text-xs rounded-lg hover:bg-purple-50 transition-colors">
+            AI 優化 Prompt
+          </button>
           <button onclick="savePrompt()"
             class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
             儲存 Prompt
@@ -662,6 +678,66 @@ async function createNewFolder() {
 
 function escAttr(str) {
   return str.replace(/'/g, "\\'").replace(/"/g, '&quot;')
+}
+
+// ===== Prompt Templates =====
+
+function loadTemplate(name) {
+  const editor = document.getElementById('prompt-editor')
+  const current = editor.value.trim()
+  if (current && !confirm('載入範本會覆蓋目前的 Prompt，確定嗎？')) return
+
+  fetch(`/prompt/template/${name}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.content) {
+        editor.value = data.content
+        // 標記選中的範本
+        document.querySelectorAll('.prompt-tmpl-btn').forEach(btn => {
+          const isActive = btn.dataset.tmpl === name
+          btn.className = `prompt-tmpl-btn px-3 py-1.5 text-xs rounded-lg border transition-colors ${isActive ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'}`
+        })
+        const status = document.getElementById('prompt-status')
+        status.textContent = `已載入「${data.name}」範本（記得點儲存）`
+        status.className = 'text-xs mt-2 text-right text-blue-600'
+      }
+    })
+}
+
+async function optimizePrompt() {
+  const editor = document.getElementById('prompt-editor')
+  const current = editor.value.trim()
+  if (!current) {
+    alert('請先輸入或選擇一個 Prompt')
+    return
+  }
+
+  const btn = document.getElementById('optimize-btn')
+  const origText = btn.textContent
+  btn.textContent = 'AI 優化中...'
+  btn.disabled = true
+
+  try {
+    const res = await fetch('/prompt/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: current }),
+    })
+    const data = await res.json()
+    if (data.error) {
+      alert(data.error)
+      return
+    }
+    editor.value = data.content
+    const status = document.getElementById('prompt-status')
+    status.textContent = 'AI 已優化（記得點儲存）'
+    status.className = 'text-xs mt-2 text-right text-purple-600'
+  } catch {
+    alert('優化失敗，請確認 API Key 已設定')
+  } finally {
+    btn.textContent = origText
+    btn.disabled = false
+  }
 }
 
 async function loadPrompt() {

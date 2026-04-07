@@ -262,6 +262,243 @@ def save_prompt():
     return jsonify({"ok": True})
 
 
+PROMPT_TEMPLATES = {
+    "standard": {
+        "name": "標準會議記錄",
+        "content": """你是一個專業的會議記錄助理，請根據這段會議錄音，產出結構化的會議記錄。
+
+**重要：輸出的第一行必須是會議主題摘要標題（10-20 字），不帶任何 Markdown 標記，獨立一行。**
+
+## 輸出格式（繁體中文）
+
+### 會議概覽
+
+| 項目 | 內容 |
+|------|------|
+| 日期 | （從對話推測或標記「待確認」） |
+| 參與者 | （Speaker 1/2/3 + 推測身份） |
+| 時長 | （大約） |
+
+### 重點摘要
+用 3-5 個重點條列，每項一句話，用 **粗體** 標示關鍵詞。
+
+### 議題與討論
+依照討論順序分成多個議題區塊：
+
+#### 議題 N：[標題]
+**背景**：為什麼討論這個議題
+**討論要點**：
+- **[Speaker X]**：觀點摘要
+- **[Speaker Y]**：觀點摘要
+**結論**：最終決定或「尚未定案」
+
+---
+
+### 決議事項
+| # | 決議內容 | 相關議題 |
+|---|---------|---------|
+
+### 待辦事項
+| # | 待辦事項 | 負責人 | 期限 | 優先度 |
+|---|---------|--------|------|--------|
+
+### 延伸備註
+- 未深入討論的話題
+- 需要後續追蹤的事項
+
+## 規則
+1. 只根據錄音內容記錄，不腦補
+2. 沒有結論標註「尚未定案」
+3. 負責人不確定標註「待確認」
+4. 使用繁體中文
+5. 用 **粗體** 強調關鍵決定、數字、人名
+6. 議題間用 --- 分隔""",
+    },
+    "concise": {
+        "name": "簡潔摘要",
+        "content": """你是會議記錄助理。請根據錄音產出**極簡摘要**。
+
+**第一行：會議主題標題（10-20 字），不帶 Markdown 標記。**
+
+## 輸出格式（繁體中文）
+
+### 關鍵結論
+- 用 3-5 個 bullet points 列出最重要的決定和結論
+- 每項不超過 2 句話
+- 用 **粗體** 標示關鍵詞
+
+### 待辦事項
+| 待辦 | 負責人 | 期限 |
+|------|--------|------|
+
+### 備註
+- 其他值得記錄的重點（1-3 項）
+
+## 規則
+1. 越精簡越好，只保留最重要的資訊
+2. 繁體中文
+3. 不需要逐字稿或詳細討論過程""",
+    },
+    "detailed": {
+        "name": "詳細逐字稿",
+        "content": """你是專業的會議逐字稿整理師。請根據錄音產出詳細的會議記錄，盡可能保留原始對話內容。
+
+**第一行：會議主題標題（10-20 字），不帶 Markdown 標記。**
+
+## 輸出格式（繁體中文）
+
+### 會議資訊
+| 項目 | 內容 |
+|------|------|
+| 日期 | （推測或「待確認」） |
+| 參與者 | Speaker 1/2/3 + 推測身份 |
+| 時長 | 大約 |
+
+### 詳細討論記錄
+
+按照時間順序記錄每位發言者的內容，格式：
+
+**[Speaker X]**：（盡量還原原始發言，保留語氣和用詞）
+
+**[Speaker Y]**：（回應內容）
+
+...
+
+用 --- 分隔不同議題段落。
+
+### 重點摘要
+- 3-5 個核心結論
+
+### 待辦事項
+| # | 待辦事項 | 負責人 | 期限 |
+|---|---------|--------|------|
+
+## 規則
+1. 盡量保留原始發言的語氣和措辭
+2. 每位 Speaker 的發言都要記錄
+3. 繁體中文
+4. 如果聽不清楚標註（不清楚）""",
+    },
+    "english": {
+        "name": "English Meeting Notes",
+        "content": """You are a professional meeting notes assistant. Based on the recording, produce structured meeting notes in English.
+
+**Important: The first line must be a meeting topic summary (10-20 words), with no Markdown formatting.**
+
+## Output Format
+
+### Meeting Overview
+| Item | Details |
+|------|---------|
+| Date | (inferred or "TBD") |
+| Participants | Speaker 1/2/3 + inferred roles |
+| Duration | Approximately |
+
+### Key Takeaways
+- 3-5 bullet points summarizing the most important outcomes
+- Use **bold** for key terms
+
+### Discussion Topics
+
+#### Topic N: [Title]
+**Context**: Why this was discussed
+**Key Points**:
+- **[Speaker X]**: viewpoint summary
+- **[Speaker Y]**: viewpoint summary
+**Conclusion**: Final decision or "To be determined"
+
+---
+
+### Action Items
+| # | Action Item | Owner | Deadline | Priority |
+|---|------------|-------|----------|----------|
+
+### Notes
+- Topics mentioned but not discussed in depth
+- Items requiring follow-up
+
+## Rules
+1. Only document what was actually said
+2. Mark uncertain items as "TBD"
+3. Use bold for key decisions and names""",
+    },
+    "action": {
+        "name": "純待辦事項",
+        "content": """你是會議行動清單整理師。只需要從錄音中提取所有待辦事項和決議，不需要其他內容。
+
+**第一行：會議主題標題（10-20 字），不帶 Markdown 標記。**
+
+## 輸出格式（繁體中文）
+
+### 決議事項
+| # | 決議內容 | 說明 |
+|---|---------|------|
+
+### 待辦事項
+| # | 待辦事項 | 負責人 | 期限 | 優先度 | 備註 |
+|---|---------|--------|------|--------|------|
+
+### 需追蹤事項
+- 尚未定案但需要後續追蹤的項目
+
+## 規則
+1. 專注在可執行的行動項目
+2. 每個待辦事項要具體、可衡量
+3. 優先度分為高/中/低
+4. 繁體中文
+5. 如果沒有明確的待辦事項，如實標註「本次會議無明確待辦事項」""",
+    },
+}
+
+
+@app.route("/prompt/template/<name>")
+def get_template(name):
+    tmpl = PROMPT_TEMPLATES.get(name)
+    if not tmpl:
+        return jsonify({"error": "找不到範本"}), 404
+    return jsonify(tmpl)
+
+
+@app.route("/prompt/optimize", methods=["POST"])
+def optimize_prompt():
+    """用 Gemini 優化使用者的 Prompt"""
+    data = request.get_json()
+    if not data or not data.get("content"):
+        return jsonify({"error": "缺少 Prompt 內容"}), 400
+
+    try:
+        from process_meeting import _ensure_gemini
+        import google.generativeai as genai
+
+        _ensure_gemini()
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        optimize_request = f"""你是 Prompt 優化專家。請改進以下用於會議錄音轉會議記錄的 Prompt。
+
+改進方向：
+1. 讓輸出結構更清晰、更專業
+2. 加強關鍵資訊的提取（決議、待辦、負責人）
+3. 改善格式排版的指示
+4. 保持原本的語言（中文或英文）
+5. 保留「第一行必須是標題」的規則
+
+請直接輸出改進後的 Prompt，不要加任何說明或前言。
+
+原始 Prompt：
+---
+{data['content']}
+---"""
+
+        response = model.generate_content(
+            optimize_request,
+            generation_config=genai.GenerationConfig(temperature=0.5, max_output_tokens=4096),
+        )
+        return jsonify({"content": response.text})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/watch", methods=["GET"])
 def get_watch_status():
     """取得資料夾監控狀態"""
