@@ -846,6 +846,8 @@ async function updateStatusBar() {
     const dot = document.getElementById('bar-watch-dot')
     const text = document.getElementById('bar-watch-text')
     const btn = document.getElementById('bar-watch-btn')
+    const proc = document.getElementById('bar-processing')
+    const procText = document.getElementById('bar-processing-text')
 
     if (data.running) {
       dot.className = 'status-dot bg-green-500'
@@ -858,11 +860,30 @@ async function updateStatusBar() {
       text.className = 'text-gray-400'
       btn.textContent = '啟動監控'
     }
+
+    // 處理進度
+    if (data.processing) {
+      proc.classList.remove('hidden')
+      const elapsed = data.elapsed || 0
+      const min = String(Math.floor(elapsed / 60)).padStart(2, '0')
+      const sec = String(elapsed % 60).padStart(2, '0')
+      procText.textContent = `${data.filename} — ${data.step}（${min}:${sec}）`
+    } else {
+      proc.classList.add('hidden')
+    }
   } catch {}
 }
 
-// 定時更新狀態列
-setInterval(updateStatusBar, 5000)
+// 處理中時更頻繁更新（每 2 秒），否則 5 秒
+let _barInterval = setInterval(updateStatusBar, 5000)
+
+function _adjustBarInterval() {
+  const proc = document.getElementById('bar-processing')
+  const isProcessing = !proc.classList.contains('hidden')
+  clearInterval(_barInterval)
+  _barInterval = setInterval(updateStatusBar, isProcessing ? 2000 : 5000)
+}
+setInterval(_adjustBarInterval, 10000)
 
 // ===== Utils =====
 

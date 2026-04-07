@@ -33,6 +33,15 @@ _job_results: dict[str, dict] = {}
 _watcher_thread = None
 _watcher_observer = None
 
+# 監控處理進度
+_watch_progress = {
+    "active": False,
+    "filename": "",
+    "step": "",
+    "started_at": None,
+    "history": [],  # 最近完成的檔案
+}
+
 
 # ===== Routes =====
 
@@ -501,10 +510,19 @@ def optimize_prompt():
 
 @app.route("/watch", methods=["GET"])
 def get_watch_status():
-    """取得資料夾監控狀態"""
+    """取得資料夾監控狀態 + 處理進度"""
+    elapsed = None
+    if _watch_progress["active"] and _watch_progress["started_at"]:
+        elapsed = int((datetime.now() - _watch_progress["started_at"]).total_seconds())
+
     return jsonify({
         "running": _watcher_thread is not None and _watcher_thread.is_alive(),
         "folder": str(Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()),
+        "processing": _watch_progress["active"],
+        "filename": _watch_progress["filename"],
+        "step": _watch_progress["step"],
+        "elapsed": elapsed,
+        "recent": _watch_progress["history"][-5:],
     })
 
 
@@ -516,13 +534,85 @@ def start_watch():
         return jsonify({"ok": True, "message": "已在監控中"})
 
     try:
-        from watch_folder import MeetingFileHandler, WATCH_FOLDER
+        from watch_folder import WATCH_FOLDER, SUPPORTED_FORMATS
         from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
 
         WATCH_FOLDER.mkdir(parents=True, exist_ok=True)
+
+        # 自訂 handler，帶進度回報
+        class ProgressHandler(FileSystemEventHandler):
+            def __init__(self):
+                self._processing = set()
+
+            def on_created(self, event):
+                if event.is_directory:
+                    return
+                fp = Path(event.src_path)
+                if fp.name.startswith(".") or fp.name.startswith("~"):
+                    return
+                if "processed" in fp.parts:
+                    return
+                if fp.suffix.lower() not in SUPPORTED_FORMATS:
+                    return
+                if str(fp) in self._processing:
+                    return
+                self._processing.add(str(fp))
+                threading.Thread(target=self._process, args=(fp,), daemon=True).start()
+
+            def _process(self, fp):
+                import time as _time
+                # 等待寫入完成
+                prev_size = -1
+                stable = 0
+                for _ in range(300):
+                    try:
+                        sz = fp.stat().st_size
+                    except FileNotFoundError:
+                        self._processing.discard(str(fp))
+                        return
+                    if sz == prev_size and sz > 0:
+                        stable += 1
+                        if stable >= 3:
+                            break
+                    else:
+                        stable = 0
+                    prev_size = sz
+                    _time.sleep(1)
+
+                _watch_progress["active"] = True
+                _watch_progress["filename"] = fp.name
+                _watch_progress["step"] = "準備處理..."
+                _watch_progress["started_at"] = datetime.now()
+
+                def log(msg):
+                    _watch_progress["step"] = msg
+
+                try:
+                    from process_meeting import process_file
+                    doc_url = process_file(str(fp), auto_open=True, log=log)
+                    _watch_progress["history"].append({
+                        "filename": fp.name,
+                        "time": datetime.now().strftime("%H:%M"),
+                        "status": "done" if doc_url else "error",
+                        "doc_url": doc_url,
+                    })
+                except Exception as e:
+                    _watch_progress["history"].append({
+                        "filename": fp.name,
+                        "time": datetime.now().strftime("%H:%M"),
+                        "status": "error",
+                        "error": str(e),
+                    })
+                finally:
+                    _watch_progress["active"] = False
+                    _watch_progress["filename"] = ""
+                    _watch_progress["step"] = ""
+                    _watch_progress["started_at"] = None
+                    self._processing.discard(str(fp))
+
         _watcher_observer = Observer()
-        handler = MeetingFileHandler()
-        _watcher_observer.schedule(handler, str(WATCH_FOLDER), recursive=False)
+        _watcher_observer.schedule(ProgressHandler(), str(WATCH_FOLDER), recursive=False)
         _watcher_observer.daemon = True
         _watcher_observer.start()
         _watcher_thread = _watcher_observer
