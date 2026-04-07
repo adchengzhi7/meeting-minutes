@@ -5,13 +5,8 @@ APP_NAME="會議記錄"
 APP_PATH="$HOME/Desktop/${APP_NAME}.app"
 PROJECT="$HOME/projects/meeting-minutes"
 
-cat > /tmp/meeting_minutes.applescript << 'APPLESCRIPT'
--- 找到 .app 自己所在的目錄作為 projectDir
-set appPath to POSIX path of (path to me)
--- 去掉尾部的 /
-if appPath ends with "/" then set appPath to text 1 thru -2 of appPath
--- 取得上層目錄
-set projectDir to do shell script "dirname " & quoted form of appPath
+cat > /tmp/meeting_minutes.applescript << APPLESCRIPT
+set projectDir to "$PROJECT"
 
 set pidFile to "/tmp/meeting-minutes.pid"
 set logFile to "/tmp/meeting-minutes-server.log"
@@ -75,7 +70,7 @@ end try
 if isRunning then
   do shell script "open http://127.0.0.1:5566"
 else
-  do shell script "cd " & quoted form of projectDir & " && nohup " & quoted form of (venvDir & "/bin/python") & " app.py > " & logFile & " 2>&1 & echo $! > " & pidFile
+  do shell script "cd " & quoted form of projectDir & " && nohup " & quoted form of (venvDir & "/bin/python") & " app.py > " & logFile & " 2>&1 & echo \$! > " & pidFile
 
   -- 等待伺服器就緒（最多 15 秒）
   repeat 30 times
