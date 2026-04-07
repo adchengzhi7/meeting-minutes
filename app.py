@@ -622,8 +622,12 @@ def _wait_file_ready(fp: Path):
     return True
 
 
+MAX_AUTO_RETRIES = 2
+_retry_counts: dict[str, int] = {}  # filename → 已自動重試次數
+
+
 def _watch_worker():
-    """佇列工作者：依序處理檔案，一次只處理一個"""
+    """佇列工作者：依序處理檔案，一次只處理一個，失敗自動重試最多 2 次"""
     while True:
         fp = _watch_queue.get()
         if fp is None:
@@ -647,6 +651,10 @@ def _watch_worker():
         _watch_progress["started_at"] = datetime.now()
         _watch_progress["logs"] = []
 
+        attempt = _retry_counts.get(fp.name, 0)
+        if attempt > 0:
+            _watch_progress["logs"].append(f"自動重試第 {attempt}/{MAX_AUTO_RETRIES} 次")
+
         def log(msg):
             _watch_progress["step"] = msg
             _watch_progress["logs"].append(msg)
@@ -663,16 +671,30 @@ def _watch_worker():
             }
             _watch_progress["history"].append(record)
             _save_watch_history(_watch_progress["history"])
+            _retry_counts.pop(fp.name, None)  # 成功，清除重試計數
         except Exception as e:
-            record = {
-                "filename": fp.name,
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "status": "error",
-                "error": str(e),
-                "logs": list(_watch_progress["logs"]),
-            }
-            _watch_progress["history"].append(record)
-            _save_watch_history(_watch_progress["history"])
+            retries = _retry_counts.get(fp.name, 0)
+            if retries < MAX_AUTO_RETRIES and fp.exists():
+                # 自動重試
+                _retry_counts[fp.name] = retries + 1
+                wait = 5 * (retries + 1)
+                log(f"處理失敗，{wait} 秒後自動重試（{retries + 1}/{MAX_AUTO_RETRIES}）...")
+                import time as _t
+                _t.sleep(wait)
+                _enqueue_file(fp)
+            else:
+                # 超過上限，記錄失敗
+                record = {
+                    "filename": fp.name,
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "status": "error",
+                    "error": str(e),
+                    "retries": retries,
+                    "logs": list(_watch_progress["logs"]),
+                }
+                _watch_progress["history"].append(record)
+                _save_watch_history(_watch_progress["history"])
+                _retry_counts.pop(fp.name, None)
         finally:
             _watch_progress["active"] = False
             _watch_progress["filename"] = ""

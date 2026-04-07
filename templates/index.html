@@ -1195,7 +1195,7 @@ async function refreshActivity() {
                 ${hasLogs ? `<button onclick="copyActLog('${logId}')" class="text-xs text-gray-400 hover:text-gray-600">複製</button>` : ''}
               </div>
             </div>
-            ${!isOk && r.error ? `<p class="text-xs text-red-400 mt-1">${escHtml(r.error)}</p>` : ''}
+            ${!isOk && r.error ? `<p class="text-xs text-red-400 mt-1">${escHtml(r.error)}${r.retries ? ' （已自動重試 ' + r.retries + ' 次）' : ''}</p>` : ''}
             ${hasLogs ? `<div id="${logId}" class="hidden mt-2 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg max-h-32 overflow-y-auto leading-relaxed act-log-detail" data-log="${escHtml(r.logs.join('\n'))}">${r.logs.map(l => `<div>> ${escHtml(l)}</div>`).join('')}</div>` : ''}
           </div>`
         }).join('')
