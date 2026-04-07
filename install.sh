@@ -107,9 +107,9 @@ set pidFile to "/tmp/meeting-minutes.pid"
 set logFile to "/tmp/meeting-minutes-server.log"
 set venvDir to projectDir & "/.venv"
 
--- 自動同步更新（靜默執行，失敗不影響使用）
+-- 自動同步更新 + 依賴檢查（靜默執行，失敗不影響使用）
 try
-  do shell script "cd " & quoted form of projectDir & " && git pull origin main --ff-only 2>/dev/null"
+  do shell script "cd " & quoted form of projectDir & " && git pull origin main --ff-only 2>/dev/null && " & quoted form of (venvDir & "/bin/pip") & " install -q -r requirements.txt 2>/dev/null"
 end try
 
 -- 檢查伺服器是否正在執行
