@@ -2,32 +2,54 @@
 
 錄音 / 錄影 → Gemini AI → 結構化 Google Doc 會議記錄
 
-## 安裝
+## 安裝步驟
 
-打開「終端機」（Spotlight 搜尋 Terminal），貼上這行：
+### Step 1：打開終端機
+
+按 `Command + 空白鍵`，輸入 `Terminal`，按 Enter 打開。
+
+### Step 2：貼上安裝指令
+
+複製下面這整行，貼到終端機，按 Enter：
 
 ```bash
 xcode-select --install 2>/dev/null; git clone https://github.com/adchengzhi7/meeting-minutes.git ~/Desktop/會議記錄 && cd ~/Desktop/會議記錄 && bash install.sh
 ```
 
-> 如果跳出安裝 Xcode 的視窗，點「安裝」等它完成後，再貼一次上面的指令。
+> 如果跳出「安裝 Xcode」的視窗，點「安裝」，等它完成後（約 5-10 分鐘），**再貼一次上面的指令**。
 
-安裝過程會自動處理 Homebrew、Python、ffmpeg 等依賴。
+> 安裝過程需要輸入**電腦密碼**（輸入時畫面不會顯示，正常的），輸完按 Enter。
 
-> 首次安裝需要 `credentials.json`（Google OAuth 憑證），請跟管理員索取，放到 `~/Desktop/會議記錄/` 資料夾後重跑 `bash install.sh`。
+### Step 3：放入 credentials.json
+
+安裝完會提示「缺少 credentials.json」，這是正常的。
+
+1. 跟管理員（Alex）索取 `credentials.json` 檔案
+2. 把檔案拖到桌面的「會議記錄」資料夾裡
+3. 回到終端機，再執行一次：
+
+```bash
+cd ~/Desktop/會議記錄 && bash install.sh
+```
+
+看到「安裝完成」就 OK 了！桌面會出現「會議記錄.app」。
+
+### Step 4：取得 Gemini API Key
+
+1. 打開 https://aistudio.google.com/apikey
+2. 用 Google 帳號登入
+3. 點「Create API Key」，複製產生的 Key
+4. 等等在 App 設定頁貼上
 
 ## 使用方式
 
 1. 雙擊桌面上的「會議記錄.app」
-2. 首次使用：在設定頁填入 Gemini API Key
-3. 選擇 Google Drive 儲存資料夾
-4. 上傳錄音/錄影，等待處理完成
+2. 第一次開啟：到「設定」分頁，貼上 Gemini API Key
+3. 點「選擇資料夾」，選擇要儲存會議記錄的 Google Drive 資料夾
+4. 切到「上傳處理」分頁，拖入錄音/錄影檔案
+5. 等待處理完成，點「開啟 Google Doc」查看結果
 
-首次使用會跳出 Google 帳號授權視窗（一次性），授權後自動續用。
-
-## 取得 Gemini API Key
-
-免費取得：https://aistudio.google.com/apikey
+> 第一次上傳時會跳出 Google 帳號授權視窗，選擇你的帳號並允許權限（一次性）。
 
 ## 支援格式
 
@@ -38,20 +60,22 @@ xcode-select --install 2>/dev/null; git clone https://github.com/adchengzhi7/mee
 
 ## 更新
 
-App 每次啟動時會自動同步最新版本。也可以手動更新：
+App 每次啟動時會自動同步最新版本，不需要手動操作。
 
+## 常見問題
+
+**Q：雙擊 .app 沒反應？**
+打開終端機執行：
 ```bash
-cd ~/Desktop/會議記錄 && git pull
+xattr -cr ~/Desktop/會議記錄.app
 ```
+再雙擊一次。
 
-## 開發者
+**Q：出現「無法連上網路」？**
+在瀏覽器手動打開 http://127.0.0.1:5566
 
-如需修改程式碼後推送更新：
+**Q：Google 授權畫面顯示「這個應用程式未經驗證」？**
+點「進階」→「前往（不安全）」，這是正常的（測試模式）。
 
-```bash
-cd ~/Desktop/會議記錄
-# 修改程式碼...
-git add -A && git commit -m "feat: 說明" && git push
-```
-
-所有使用者下次開啟 App 時會自動同步。
+**Q：處理失敗？**
+確認 Gemini API Key 有正確填入，並檢查檔案格式是否支援。
