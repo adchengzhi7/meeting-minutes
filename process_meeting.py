@@ -398,15 +398,49 @@ def _add_runs(paragraph, text: str):
                 run.bold = True
 
 
+LANGUAGE_OPTIONS = {
+    "auto": "自動偵測",
+    "zh-TW": "繁體中文",
+    "zh-CN": "簡體中文",
+    "en": "English",
+    "ja": "日本語",
+    "ko": "한국어",
+}
+
+
 def _add_language_hint(prompt_text: str) -> str:
-    """加入多語言偵測指示，讓 Gemini 根據錄音語言自動調整輸出"""
-    hint = "\n\n## 語言偵測\n請先辨識錄音中使用的主要語言。如果是中文，使用繁體中文輸出；如果是英文，使用英文輸出；如果是其他語言，使用該語言輸出。如果會議中混用多種語言，以使用最多的語言為主要輸出語言，但保留專有名詞的原始語言。"
-    if "語言偵測" not in prompt_text:
+    """根據 OUTPUT_LANGUAGE 設定加入語言指示"""
+    lang = os.getenv("OUTPUT_LANGUAGE", "auto")
+
+    if lang == "auto":
+        hint = ("\n\n## 語言偵測\n"
+                "請先辨識錄音中使用的主要語言，並在會議概覽表格中加入「偵測語言」欄位標註。\n"
+                "如果是中文，使用繁體中文輸出；如果是英文，使用英文輸出；如果是其他語言，使用該語言輸出。\n"
+                "如果會議中混用多種語言，以使用最多的語言為主要輸出語言，但保留專有名詞的原始語言。")
+    else:
+        lang_name = LANGUAGE_OPTIONS.get(lang, lang)
+        hint = f"\n\n## 輸出語言\n請使用 **{lang_name}** 輸出會議記錄。保留專有名詞的原始語言。"
+
+    if "語言偵測" not in prompt_text and "輸出語言" not in prompt_text:
         return prompt_text + hint
     return prompt_text
 
 
-def _save_history(original_name: str, doc_title: str, doc_url: str):
+def _detect_language_from_output(text: str) -> str:
+    """從 Gemini 輸出中嘗試提取偵測到的語言"""
+    import re
+    # 找「偵測語言」欄位（表格格式：| 偵測語言 | XXX |）
+    m = re.search(r'偵測語言\s*\|\s*(.+?)(?:\s*\||\s*$)', text)
+    if m:
+        return m.group(1).strip()
+    # 找 "Detected Language" 欄位
+    m = re.search(r'[Dd]etected [Ll]anguage\s*\|\s*(.+?)(?:\s*\||\s*$)', text)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _save_history(original_name: str, doc_title: str, doc_url: str, language: str = ""):
     """儲存處理記錄到 history.json"""
     import json as _json
     history_path = PROJECT_DIR / "history.json"
@@ -423,6 +457,7 @@ def _save_history(original_name: str, doc_title: str, doc_url: str):
         "title": doc_title,
         "url": doc_url,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "language": language,
     })
 
     # 最多保留 200 筆
@@ -472,6 +507,14 @@ def process_file(file_path: str, auto_open: bool = True, log=print):
         # 移除第一行（標題），剩餘為正文
         doc_body = "\n".join(lines[1:]).strip()
 
+        # 偵測語言（從會議概覽表格中找「偵測語言」欄位）
+        detected_lang = _detect_language_from_output(meeting_notes)
+        lang_setting = os.getenv("OUTPUT_LANGUAGE", "auto")
+        if lang_setting == "auto" and detected_lang:
+            log(f"偵測語言：{detected_lang}")
+        elif lang_setting != "auto":
+            detected_lang = LANGUAGE_OPTIONS.get(lang_setting, lang_setting)
+
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         doc_title = f"{timestamp} — {ai_title}"
         log("建立 Google Doc...")
@@ -483,7 +526,7 @@ def process_file(file_path: str, auto_open: bool = True, log=print):
         log(f"原始檔案已歸檔")
 
         # 儲存 metadata
-        _save_history(filename, doc_title, doc_url)
+        _save_history(filename, doc_title, doc_url, language=detected_lang)
 
         send_notification(
             "會議記錄完成",
