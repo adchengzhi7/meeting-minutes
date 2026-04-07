@@ -77,6 +77,12 @@
       accept=".mp4,.mkv,.mov,.avi,.webm,.m4a,.mp3,.wav,.ogg,.flac,.aac,.wma"
       onchange="onFileSelected(this)">
 
+    <!-- 從語音備忘錄匯入 -->
+    <button onclick="importVoiceMemos()" id="import-vm-btn"
+      class="mt-4 w-full py-3 border-2 border-dashed border-purple-300 rounded-xl text-purple-600 text-sm font-medium hover:bg-purple-50 hover:border-purple-400 transition-colors">
+      從語音備忘錄匯入
+    </button>
+
     <!-- 儲存位置（上傳頁快速檢視/切換） -->
     <div class="mt-3 flex items-center justify-between px-1">
       <div class="flex items-center gap-1.5 text-xs text-gray-400">
@@ -147,6 +153,7 @@
       <p id="act-folder-path" class="text-xs text-gray-400 font-mono mb-2"></p>
       <div class="flex gap-2">
         <button onclick="openWatchFolder()" class="text-xs text-blue-600 hover:underline">打開資料夾</button>
+        <button onclick="importVoiceMemos()" class="text-xs text-purple-600 hover:underline">匯入語音備忘錄</button>
       </div>
     </div>
 
@@ -1291,6 +1298,39 @@ setInterval(_adjustBarInterval, 10000)
 
 function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+// ===== Import Voice Memos =====
+
+async function importVoiceMemos() {
+  const btn = document.getElementById('import-vm-btn')
+  if (btn) {
+    btn.textContent = '選擇錄音中...'
+    btn.disabled = true
+  }
+
+  try {
+    const res = await fetch('/import/voice-memos', { method: 'POST' })
+    const data = await res.json()
+
+    if (data.error) {
+      alert('匯入失敗：' + data.error)
+      return
+    }
+
+    if (data.count > 0) {
+      sendNotification('語音備忘錄已匯入', `${data.count} 個檔案將自動處理`)
+      // 切到活動頁看進度
+      showTab('activity')
+    }
+  } catch {
+    alert('匯入失敗')
+  } finally {
+    if (btn) {
+      btn.textContent = '從語音備忘錄匯入'
+      btn.disabled = false
+    }
+  }
 }
 
 // ===== Browser Notifications =====

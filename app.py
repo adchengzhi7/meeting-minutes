@@ -773,6 +773,56 @@ def open_watch_folder():
     return jsonify({"ok": True})
 
 
+@app.route("/import/voice-memos", methods=["POST"])
+def import_voice_memos():
+    """用原生檔案選擇器從 iCloud 匯入語音備忘錄到 MeetingDrop"""
+    import subprocess
+
+    watch_folder = Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()
+    watch_folder.mkdir(parents=True, exist_ok=True)
+
+    script = f'''
+set meetingDrop to "{watch_folder}/"
+set iCloudDocs to (POSIX file ((POSIX path of (path to home folder)) & "Library/Mobile Documents/com~apple~CloudDocs/") as alias)
+
+set chosenFiles to choose file with prompt "選擇會議錄音（可多選）" of type {{"public.audio", "public.mpeg-4", "com.apple.quicktime-movie", "public.movie"}} default location iCloudDocs with multiple selections allowed
+
+set fileCount to 0
+set fileNames to ""
+repeat with f in chosenFiles
+    set fPath to POSIX path of f
+    set fName to name of (info for f)
+    do shell script "cp " & quoted form of fPath & " " & quoted form of (meetingDrop & fName)
+    set fileCount to fileCount + 1
+    if fileNames is not "" then set fileNames to fileNames & ", "
+    set fileNames to fileNames & fName
+end repeat
+
+return fileCount & "|" & fileNames
+'''
+
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            if "User canceled" in stderr or "-128" in stderr:
+                return jsonify({"ok": True, "count": 0, "message": "已取消"})
+            return jsonify({"error": stderr}), 500
+
+        parts = result.stdout.strip().split("|", 1)
+        count = int(parts[0])
+        names = parts[1] if len(parts) > 1 else ""
+        return jsonify({"ok": True, "count": count, "files": names})
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "操作逾時"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ===== Helpers =====
 
 def _run_job(job_id: str, file_path: str):
