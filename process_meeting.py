@@ -90,8 +90,8 @@ def extract_audio(input_path: str, log=print) -> str:
     return output_path
 
 
-def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print) -> str:
-    """用 Gemini 直接處理音檔，一步完成轉錄+摘要"""
+def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print, max_retries: int = 3) -> str:
+    """用 Gemini 直接處理音檔，一步完成轉錄+摘要（含自動重試）"""
     _ensure_gemini()
     log("上傳音檔到 Gemini...")
 
@@ -105,24 +105,44 @@ def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print) -> st
     if audio_file.state.name == "FAILED":
         raise RuntimeError(f"Gemini 檔案處理失敗：{audio_file.state.name}")
 
-    log("呼叫 Gemini 產生會議記錄...")
-
     max_tokens = int(os.getenv("MAX_OUTPUT_TOKENS", "65536"))
     model = genai.GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content(
-        [audio_file, prompt_text],
-        generation_config=genai.GenerationConfig(
-            temperature=0.3,
-            max_output_tokens=max_tokens,
-        ),
-    )
 
-    try:
-        genai.delete_file(audio_file.name)
-    except Exception:
-        pass
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            if attempt > 1:
+                log(f"重試中（第 {attempt}/{max_retries} 次）...")
+            else:
+                log("呼叫 Gemini 產生會議記錄...")
 
-    return response.text
+            response = model.generate_content(
+                [audio_file, prompt_text],
+                generation_config=genai.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+
+            try:
+                genai.delete_file(audio_file.name)
+            except Exception:
+                pass
+
+            return response.text
+
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                log(f"Gemini API 錯誤：{e}，{wait} 秒後重試...")
+                time.sleep(wait)
+            else:
+                try:
+                    genai.delete_file(audio_file.name)
+                except Exception:
+                    pass
+                raise RuntimeError(f"Gemini API 連續 {max_retries} 次失敗：{last_error}")
 
 
 def get_google_creds():

@@ -25,9 +25,11 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 ARCHIVE_FOLDER = Path(os.getenv("ARCHIVE_FOLDER", "~/Desktop/MeetingDrop/processed")).expanduser()
 
-# job_id → queue of log messages
-_job_queues: dict[str, queue.Queue] = {}
+# job_id → list of subscriber queues (broadcast to all)
+_job_subscribers: dict[str, list[queue.Queue]] = {}
+_job_logs: dict[str, list] = {}  # job_id → all log messages (for reconnect replay)
 _job_results: dict[str, dict] = {}
+_job_meta: dict[str, dict] = {}  # job_id → {filename, started_at}
 
 # 資料夾監控
 _watcher_thread = None
@@ -136,36 +138,76 @@ def upload():
     save_path = UPLOAD_FOLDER / f"{job_id}_{file.filename}"
     file.save(str(save_path))
 
-    # 建立 job queue
-    q = queue.Queue()
-    _job_queues[job_id] = q
+    # 建立 job broadcast + log buffer
+    _job_subscribers[job_id] = []
+    _job_logs[job_id] = []
     _job_results[job_id] = {"status": "processing", "doc_url": None, "error": None}
+    _job_meta[job_id] = {"filename": file.filename, "started_at": datetime.now().isoformat()}
 
-    # 背景執行
+    # 背景處理
     thread = threading.Thread(target=_run_job, args=(job_id, str(save_path)), daemon=True)
     thread.start()
 
     return jsonify({"job_id": job_id})
 
 
+@app.route("/jobs/active")
+def active_jobs():
+    """回傳目前進行中的 job（讓刷新後可以接回）"""
+    active = []
+    for job_id, result in _job_results.items():
+        if result["status"] == "processing":
+            meta = _job_meta.get(job_id, {})
+            active.append({
+                "job_id": job_id,
+                "filename": meta.get("filename", ""),
+                "started_at": meta.get("started_at", ""),
+            })
+    return jsonify(active)
+
+
 @app.route("/stream/<job_id>")
 def stream(job_id):
-    """SSE endpoint：即時 log 串流"""
-    if job_id not in _job_queues:
+    """SSE endpoint：即時 log 串流（支援刷新後重新連線）"""
+    # 如果 job 已完成，直接回傳結果
+    result = _job_results.get(job_id)
+    if result and result["status"] != "processing":
+        def done_immediately():
+            yield f"data: {json.dumps({'type': 'done', **result})}\n\n"
+        return Response(
+            stream_with_context(done_immediately()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    if job_id not in _job_subscribers:
         return jsonify({"error": "找不到 job"}), 404
 
     def generate():
-        q = _job_queues[job_id]
-        while True:
-            try:
-                msg = q.get(timeout=30)
-                if msg is None:  # sentinel：job 結束
-                    result = _job_results.get(job_id, {})
-                    yield f"data: {json.dumps({'type': 'done', **result})}\n\n"
-                    break
-                yield f"data: {json.dumps({'type': 'log', 'message': msg})}\n\n"
-            except queue.Empty:
-                yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+        # 回放已有的 log（給刷新後重連的客戶端）
+        for msg in list(_job_logs.get(job_id, [])):
+            yield f"data: {json.dumps({'type': 'log', 'message': msg})}\n\n"
+
+        # 建立新的訂閱者 queue 接收後續訊息
+        q = queue.Queue()
+        subs = _job_subscribers.get(job_id)
+        if subs is not None:
+            subs.append(q)
+        try:
+            while True:
+                try:
+                    msg = q.get(timeout=30)
+                    if msg is None:  # sentinel：job 結束
+                        result = _job_results.get(job_id, {})
+                        yield f"data: {json.dumps({'type': 'done', **result})}\n\n"
+                        break
+                    yield f"data: {json.dumps({'type': 'log', 'message': msg})}\n\n"
+                except queue.Empty:
+                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+        finally:
+            # 斷線時移除訂閱者
+            if subs is not None and q in subs:
+                subs.remove(q)
 
     return Response(
         stream_with_context(generate()),
@@ -526,113 +568,117 @@ def get_watch_status():
     })
 
 
+def _create_watcher():
+    """建立並啟動資料夾監控，回傳 (observer, existing_count)"""
+    global _watcher_thread, _watcher_observer
+    from watch_folder import WATCH_FOLDER, SUPPORTED_FORMATS
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+
+    WATCH_FOLDER.mkdir(parents=True, exist_ok=True)
+
+    class ProgressHandler(FileSystemEventHandler):
+        def __init__(self):
+            self._processing = set()
+
+        def on_created(self, event):
+            if event.is_directory:
+                return
+            fp = Path(event.src_path)
+            if fp.name.startswith(".") or fp.name.startswith("~"):
+                return
+            if "processed" in fp.parts:
+                return
+            if fp.suffix.lower() not in SUPPORTED_FORMATS:
+                return
+            if str(fp) in self._processing:
+                return
+            self._processing.add(str(fp))
+            threading.Thread(target=self._process, args=(fp,), daemon=True).start()
+
+        def _process(self, fp):
+            import time as _time
+            prev_size = -1
+            stable = 0
+            for _ in range(300):
+                try:
+                    sz = fp.stat().st_size
+                except FileNotFoundError:
+                    self._processing.discard(str(fp))
+                    return
+                if sz == prev_size and sz > 0:
+                    stable += 1
+                    if stable >= 3:
+                        break
+                else:
+                    stable = 0
+                prev_size = sz
+                _time.sleep(1)
+
+            _watch_progress["active"] = True
+            _watch_progress["filename"] = fp.name
+            _watch_progress["step"] = "準備處理..."
+            _watch_progress["started_at"] = datetime.now()
+
+            def log(msg):
+                _watch_progress["step"] = msg
+
+            try:
+                from process_meeting import process_file
+                doc_url = process_file(str(fp), auto_open=True, log=log)
+                _watch_progress["history"].append({
+                    "filename": fp.name,
+                    "time": datetime.now().strftime("%H:%M"),
+                    "status": "done" if doc_url else "error",
+                    "doc_url": doc_url,
+                })
+            except Exception as e:
+                _watch_progress["history"].append({
+                    "filename": fp.name,
+                    "time": datetime.now().strftime("%H:%M"),
+                    "status": "error",
+                    "error": str(e),
+                })
+            finally:
+                _watch_progress["active"] = False
+                _watch_progress["filename"] = ""
+                _watch_progress["step"] = ""
+                _watch_progress["started_at"] = None
+                self._processing.discard(str(fp))
+
+    handler = ProgressHandler()
+    observer = Observer()
+    observer.schedule(handler, str(WATCH_FOLDER), recursive=False)
+    observer.daemon = True
+    observer.start()
+    _watcher_observer = observer
+    _watcher_thread = observer
+
+    existing = [f for f in WATCH_FOLDER.iterdir()
+                 if f.is_file()
+                 and not f.name.startswith(".")
+                 and not f.name.startswith("~")
+                 and f.suffix.lower() in SUPPORTED_FORMATS]
+    if existing:
+        def _process_existing():
+            for fp in existing:
+                handler._processing.add(str(fp))
+                handler._process(fp)
+        threading.Thread(target=_process_existing, daemon=True).start()
+
+    return WATCH_FOLDER, len(existing)
+
+
 @app.route("/watch/start", methods=["POST"])
 def start_watch():
     """啟動資料夾監控"""
-    global _watcher_thread, _watcher_observer
     if _watcher_thread and _watcher_thread.is_alive():
         return jsonify({"ok": True, "message": "已在監控中"})
 
     try:
-        from watch_folder import WATCH_FOLDER, SUPPORTED_FORMATS
-        from watchdog.observers import Observer
-        from watchdog.events import FileSystemEventHandler
-
-        WATCH_FOLDER.mkdir(parents=True, exist_ok=True)
-
-        # 自訂 handler，帶進度回報
-        class ProgressHandler(FileSystemEventHandler):
-            def __init__(self):
-                self._processing = set()
-
-            def on_created(self, event):
-                if event.is_directory:
-                    return
-                fp = Path(event.src_path)
-                if fp.name.startswith(".") or fp.name.startswith("~"):
-                    return
-                if "processed" in fp.parts:
-                    return
-                if fp.suffix.lower() not in SUPPORTED_FORMATS:
-                    return
-                if str(fp) in self._processing:
-                    return
-                self._processing.add(str(fp))
-                threading.Thread(target=self._process, args=(fp,), daemon=True).start()
-
-            def _process(self, fp):
-                import time as _time
-                # 等待寫入完成
-                prev_size = -1
-                stable = 0
-                for _ in range(300):
-                    try:
-                        sz = fp.stat().st_size
-                    except FileNotFoundError:
-                        self._processing.discard(str(fp))
-                        return
-                    if sz == prev_size and sz > 0:
-                        stable += 1
-                        if stable >= 3:
-                            break
-                    else:
-                        stable = 0
-                    prev_size = sz
-                    _time.sleep(1)
-
-                _watch_progress["active"] = True
-                _watch_progress["filename"] = fp.name
-                _watch_progress["step"] = "準備處理..."
-                _watch_progress["started_at"] = datetime.now()
-
-                def log(msg):
-                    _watch_progress["step"] = msg
-
-                try:
-                    from process_meeting import process_file
-                    doc_url = process_file(str(fp), auto_open=True, log=log)
-                    _watch_progress["history"].append({
-                        "filename": fp.name,
-                        "time": datetime.now().strftime("%H:%M"),
-                        "status": "done" if doc_url else "error",
-                        "doc_url": doc_url,
-                    })
-                except Exception as e:
-                    _watch_progress["history"].append({
-                        "filename": fp.name,
-                        "time": datetime.now().strftime("%H:%M"),
-                        "status": "error",
-                        "error": str(e),
-                    })
-                finally:
-                    _watch_progress["active"] = False
-                    _watch_progress["filename"] = ""
-                    _watch_progress["step"] = ""
-                    _watch_progress["started_at"] = None
-                    self._processing.discard(str(fp))
-
-        handler = ProgressHandler()
-        _watcher_observer = Observer()
-        _watcher_observer.schedule(handler, str(WATCH_FOLDER), recursive=False)
-        _watcher_observer.daemon = True
-        _watcher_observer.start()
-        _watcher_thread = _watcher_observer
-
-        # 啟動時掃描已有的檔案
-        existing = [f for f in WATCH_FOLDER.iterdir()
-                     if f.is_file()
-                     and not f.name.startswith(".")
-                     and not f.name.startswith("~")
-                     and f.suffix.lower() in SUPPORTED_FORMATS]
-        if existing:
-            def _process_existing():
-                for fp in existing:
-                    handler._processing.add(str(fp))
-                    handler._process(fp)
-            threading.Thread(target=_process_existing, daemon=True).start()
-
-        count_msg = f"（{len(existing)} 個待處理）" if existing else ""
-        return jsonify({"ok": True, "message": f"開始監控 {WATCH_FOLDER}{count_msg}"})
+        folder, count = _create_watcher()
+        count_msg = f"（{count} 個待處理）" if count else ""
+        return jsonify({"ok": True, "message": f"開始監控 {folder}{count_msg}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -661,10 +707,11 @@ def open_watch_folder():
 # ===== Helpers =====
 
 def _run_job(job_id: str, file_path: str):
-    q = _job_queues[job_id]
-
     def log(msg: str):
-        q.put(msg)
+        if job_id in _job_logs:
+            _job_logs[job_id].append(msg)
+        for q in list(_job_subscribers.get(job_id, [])):
+            q.put(msg)
 
     try:
         # 延遲 import，避免啟動時就需要所有設定
@@ -686,7 +733,8 @@ def _run_job(job_id: str, file_path: str):
             Path(file_path).unlink(missing_ok=True)
         except Exception:
             pass
-        q.put(None)  # sentinel
+        for q in list(_job_subscribers.get(job_id, [])):
+            q.put(None)  # sentinel
 
 
 def _read_env_file(path: Path) -> dict:
@@ -743,6 +791,20 @@ def _format_size(size: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _auto_start_watch():
+    """伺服器啟動時自動開啟資料夾監控"""
+    import time as _time
+    _time.sleep(1)  # 等伺服器就緒
+    try:
+        if _watcher_thread and _watcher_thread.is_alive():
+            return
+        folder, count = _create_watcher()
+        print(f"自動啟動監控：{folder}（{count} 個待處理）")
+    except Exception as e:
+        print(f"自動監控啟動失敗：{e}")
+
+
 if __name__ == "__main__":
     print("會議記錄 UI 啟動：http://127.0.0.1:5566")
+    threading.Thread(target=_auto_start_watch, daemon=True).start()
     app.run(host="0.0.0.0", port=5566, debug=False, threaded=True)

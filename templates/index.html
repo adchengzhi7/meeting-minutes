@@ -445,6 +445,7 @@ function listenToJob(jobId) {
         document.getElementById('proc-status').textContent = '完成'
         document.getElementById('doc-link').href = data.doc_url
         document.getElementById('result-panel').classList.remove('hidden')
+        sendNotification('會議記錄完成', document.getElementById('proc-filename').textContent, data.doc_url)
       } else {
         showError(data.error || '未知錯誤')
       }
@@ -874,6 +875,8 @@ async function toggleWatchFromBar() {
   updateStatusBar()
 }
 
+let _lastWatchRecent = 0  // 追蹤已通知的完成數
+
 async function updateStatusBar() {
   try {
     const res = await fetch('/watch')
@@ -906,6 +909,16 @@ async function updateStatusBar() {
     } else {
       proc.classList.add('hidden')
     }
+
+    // 監控完成通知
+    const recent = data.recent || []
+    if (recent.length > _lastWatchRecent) {
+      const newest = recent[recent.length - 1]
+      if (newest.status === 'done') {
+        sendNotification('會議記錄完成', newest.filename, newest.doc_url)
+      }
+    }
+    _lastWatchRecent = recent.length
   } catch {}
 }
 
@@ -926,9 +939,50 @@ function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 }
 
+// ===== Browser Notifications =====
+
+function sendNotification(title, body, url) {
+  if (!('Notification' in window)) return
+  if (Notification.permission === 'granted') {
+    const n = new Notification(title, { body, icon: '/favicon.ico' })
+    if (url) n.onclick = () => { window.open(url, '_blank'); n.close() }
+  }
+}
+
+// 頁面載入時請求通知權限
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission()
+}
+
+// ===== Reconnect after refresh =====
+
+async function checkActiveJobs() {
+  try {
+    const res = await fetch('/jobs/active')
+    const jobs = await res.json()
+    if (jobs.length > 0) {
+      const job = jobs[0]
+      document.getElementById('drop-zone').classList.add('hidden')
+      document.getElementById('processing-panel').classList.remove('hidden')
+      document.getElementById('proc-filename').textContent = job.filename
+      document.getElementById('proc-status').textContent = '處理中（已重新連線）...'
+      document.getElementById('result-panel').classList.add('hidden')
+      document.getElementById('error-panel').classList.add('hidden')
+      document.getElementById('log-panel').innerHTML = '<div class="text-gray-500">（已從上次進度接續）</div>'
+      startTimer()
+      // 用 started_at 校正計時器
+      if (job.started_at) {
+        timerStart = new Date(job.started_at).getTime()
+      }
+      listenToJob(job.job_id)
+    }
+  } catch {}
+}
+
 // ===== Init =====
 checkStatus()
 updateStatusBar()
+checkActiveJobs()
 </script>
 </body>
 </html>
