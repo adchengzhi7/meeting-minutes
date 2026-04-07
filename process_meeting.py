@@ -112,7 +112,7 @@ def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print) -> st
         [audio_file, prompt_text],
         generation_config=genai.GenerationConfig(
             temperature=0.3,
-            max_output_tokens=8192,
+            max_output_tokens=65536,
         ),
     )
 
