@@ -80,7 +80,7 @@
     <!-- 從語音備忘錄匯入 -->
     <button onclick="importVoiceMemos()" id="import-vm-btn"
       class="mt-4 w-full py-3 border-2 border-dashed border-purple-300 rounded-xl text-purple-600 text-sm font-medium hover:bg-purple-50 hover:border-purple-400 transition-colors">
-      從語音備忘錄匯入
+      從語音備忘錄匯入（拖放）
     </button>
 
     <!-- 儲存位置（上傳頁快速檢視/切換） -->
@@ -1305,7 +1305,7 @@ function escHtml(str) {
 async function importVoiceMemos() {
   const btn = document.getElementById('import-vm-btn')
   if (btn) {
-    btn.textContent = '選擇錄音中...'
+    btn.textContent = '開啟中...'
     btn.disabled = true
   }
 
@@ -1314,17 +1314,10 @@ async function importVoiceMemos() {
     const data = await res.json()
 
     if (data.error) {
-      alert('匯入失敗：' + data.error)
-      return
-    }
-
-    if (data.count > 0) {
-      sendNotification('語音備忘錄已匯入', `${data.count} 個檔案將自動處理`)
-      // 切到活動頁看進度
-      showTab('activity')
+      alert('開啟失敗：' + data.error)
     }
   } catch {
-    alert('匯入失敗')
+    alert('開啟失敗')
   } finally {
     if (btn) {
       btn.textContent = '從語音備忘錄匯入'

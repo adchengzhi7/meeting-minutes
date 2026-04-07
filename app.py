@@ -775,52 +775,66 @@ def open_watch_folder():
 
 @app.route("/import/voice-memos", methods=["POST"])
 def import_voice_memos():
-    """用原生檔案選擇器從 iCloud 匯入語音備忘錄到 MeetingDrop"""
+    """打開語音備忘錄 App + MeetingDrop 資料夾並排，讓使用者拖放"""
     import subprocess
 
     watch_folder = Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()
     watch_folder.mkdir(parents=True, exist_ok=True)
 
     script = f'''
-set meetingDrop to "{watch_folder}/"
-set iCloudDocs to (POSIX file ((POSIX path of (path to home folder)) & "Library/Mobile Documents/com~apple~CloudDocs/") as alias)
+-- 取得螢幕尺寸
+tell application "Finder"
+    set screenBounds to bounds of window of desktop
+    set screenW to item 3 of screenBounds
+    set screenH to item 4 of screenBounds
+end tell
 
-set chosenFiles to choose file with prompt "選擇會議錄音（可多選）" of type {{"public.audio", "public.mpeg-4", "com.apple.quicktime-movie", "public.movie"}} default location iCloudDocs with multiple selections allowed
+set halfW to screenW / 2
 
-set fileCount to 0
-set fileNames to ""
-repeat with f in chosenFiles
-    set fPath to POSIX path of f
-    set fName to name of (info for f)
-    do shell script "cp " & quoted form of fPath & " " & quoted form of (meetingDrop & fName)
-    set fileCount to fileCount + 1
-    if fileNames is not "" then set fileNames to fileNames & ", "
-    set fileNames to fileNames & fName
-end repeat
+-- 打開 MeetingDrop 資料夾（左半邊）
+tell application "Finder"
+    activate
+    set meetingFolder to POSIX file "{watch_folder}" as alias
+    open meetingFolder
+    set bounds of Finder window 1 to {{0, 25, halfW, screenH - 100}}
+end tell
 
-return fileCount & "|" & fileNames
+-- 打開語音備忘錄（右半邊）
+tell application id "com.apple.VoiceMemos"
+    activate
+end tell
+
+delay 0.5
+
+tell application "System Events"
+    tell process "VoiceMemos"
+        try
+            set position of window 1 to {{halfW, 25}}
+            set size of window 1 to {{halfW, screenH - 125}}
+        end try
+    end tell
+end tell
+
+return "ok"
 '''
 
     try:
         result = subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
-            stderr = result.stderr.strip()
-            if "User canceled" in stderr or "-128" in stderr:
-                return jsonify({"ok": True, "count": 0, "message": "已取消"})
-            return jsonify({"error": stderr}), 500
+            # 可能沒有輔助使用權限，fallback 到簡單模式
+            subprocess.run(["open", str(watch_folder)])
+            subprocess.run(["open", "-a", "Voice Memos"])
+            return jsonify({"ok": True, "mode": "simple"})
 
-        parts = result.stdout.strip().split("|", 1)
-        count = int(parts[0])
-        names = parts[1] if len(parts) > 1 else ""
-        return jsonify({"ok": True, "count": count, "files": names})
+        return jsonify({"ok": True, "mode": "side-by-side"})
 
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "操作逾時"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        subprocess.run(["open", str(watch_folder)])
+        subprocess.run(["open", "-a", "Voice Memos"])
+        return jsonify({"ok": True, "mode": "simple"})
 
 
 # ===== Helpers =====
