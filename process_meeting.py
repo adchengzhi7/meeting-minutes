@@ -180,28 +180,50 @@ def _markdown_to_docx(markdown: str, output_path: str):
     """將 Markdown 轉成 .docx"""
     from docx.shared import Pt, RGBColor
     from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml.ns import qn
 
     doc = Document()
 
-    # 調整預設字型
+    # 調整預設字型（支援中文 fallback）
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(11)
+    style.paragraph_format.space_after = Pt(4)
+    # 設定中文 fallback 字型
+    rpr = style.element.get_or_add_rPr()
+    ea_font = rpr.makeelement(qn("w:rFonts"), {})
+    ea_font.set(qn("w:eastAsia"), "Microsoft JhengHei")
+    rpr.insert(0, ea_font)
+
+    # 調整標題樣式
+    for level in range(1, 5):
+        heading_style = doc.styles[f"Heading {level}"]
+        heading_style.font.color.rgb = RGBColor(0x1a, 0x1a, 0x2e)
+        if level <= 2:
+            heading_style.paragraph_format.space_before = Pt(18)
+            heading_style.paragraph_format.space_after = Pt(8)
+        else:
+            heading_style.paragraph_format.space_before = Pt(12)
+            heading_style.paragraph_format.space_after = Pt(4)
 
     lines = markdown.split("\n")
     i = 0
     while i < len(lines):
         line = lines[i]
 
+        # 水平線
+        if line.strip() in ("---", "***", "___"):
+            _add_horizontal_rule(doc)
+
         # 標題
-        if line.startswith("#### "):
+        elif line.startswith("#### "):
             doc.add_heading(line[5:], level=4)
         elif line.startswith("### "):
-            doc.add_heading(line[4:], level=3)
+            doc.add_heading(line[3:].strip(), level=3)
         elif line.startswith("## "):
-            doc.add_heading(line[3:], level=2)
+            doc.add_heading(line[2:].strip(), level=2)
         elif line.startswith("# "):
-            doc.add_heading(line[2:], level=1)
+            doc.add_heading(line[1:].strip(), level=1)
 
         # 表格：收集連續的 | 行，轉成 docx table
         elif line.strip().startswith("|"):
@@ -211,6 +233,10 @@ def _markdown_to_docx(markdown: str, output_path: str):
                 i += 1
             i -= 1  # 回退一行，外層 i+=1 會補上
             _add_table(doc, table_lines)
+
+        # 縮排列表（  - ）
+        elif line.startswith("  - "):
+            _add_rich_paragraph(doc, line.strip()[2:], style_name="List Bullet 2")
 
         # 列表
         elif line.startswith("- "):
@@ -227,6 +253,26 @@ def _markdown_to_docx(markdown: str, output_path: str):
         i += 1
 
     doc.save(output_path)
+
+
+def _add_horizontal_rule(doc):
+    """加入水平線分隔"""
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(6)
+    pPr = p._element.get_or_add_pPr()
+    pBdr = pPr.makeelement(qn("w:pBdr"), {})
+    bottom = pBdr.makeelement(qn("w:bottom"), {
+        qn("w:val"): "single",
+        qn("w:sz"): "6",
+        qn("w:space"): "1",
+        qn("w:color"): "D0D0D0",
+    })
+    pBdr.append(bottom)
+    pPr.append(pBdr)
 
 
 def _add_table(doc, table_lines: list):
@@ -258,11 +304,24 @@ def _add_table(doc, table_lines: list):
                 p = cell.paragraphs[0]
                 _add_runs(p, cell_text)
                 p.paragraph_format.space_after = Pt(2)
+                # 表格內文字稍小
+                for run in p.runs:
+                    run.font.size = Pt(10)
 
-                # 表頭粗體
+                # 表頭粗體 + 底色
                 if r_idx == 0:
                     for run in p.runs:
                         run.bold = True
+                        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                    # 表頭底色（深藍）
+                    tc = cell._element
+                    tcPr = tc.get_or_add_tcPr()
+                    shading = tcPr.makeelement(qn("w:shd"), {
+                        qn("w:val"): "clear",
+                        qn("w:color"): "auto",
+                        qn("w:fill"): "2563EB",
+                    })
+                    tcPr.append(shading)
 
     doc.add_paragraph()  # 表格後空行
 

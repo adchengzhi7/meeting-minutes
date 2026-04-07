@@ -29,6 +29,10 @@ ARCHIVE_FOLDER = Path(os.getenv("ARCHIVE_FOLDER", "~/MeetingDrop/processed")).ex
 _job_queues: dict[str, queue.Queue] = {}
 _job_results: dict[str, dict] = {}
 
+# 資料夾監控
+_watcher_thread = None
+_watcher_observer = None
+
 
 # ===== Routes =====
 
@@ -226,6 +230,49 @@ def save_prompt():
         return jsonify({"error": "無效的請求"}), 400
     prompt_path = Path(__file__).parent / "prompt.md"
     prompt_path.write_text(data["content"], encoding="utf-8")
+    return jsonify({"ok": True})
+
+
+@app.route("/watch", methods=["GET"])
+def get_watch_status():
+    """取得資料夾監控狀態"""
+    return jsonify({
+        "running": _watcher_thread is not None and _watcher_thread.is_alive(),
+        "folder": str(Path(os.getenv("WATCH_FOLDER", "~/MeetingDrop")).expanduser()),
+    })
+
+
+@app.route("/watch/start", methods=["POST"])
+def start_watch():
+    """啟動資料夾監控"""
+    global _watcher_thread, _watcher_observer
+    if _watcher_thread and _watcher_thread.is_alive():
+        return jsonify({"ok": True, "message": "已在監控中"})
+
+    try:
+        from watch_folder import MeetingFileHandler, WATCH_FOLDER
+        from watchdog.observers import Observer
+
+        WATCH_FOLDER.mkdir(parents=True, exist_ok=True)
+        _watcher_observer = Observer()
+        handler = MeetingFileHandler()
+        _watcher_observer.schedule(handler, str(WATCH_FOLDER), recursive=False)
+        _watcher_observer.daemon = True
+        _watcher_observer.start()
+        _watcher_thread = _watcher_observer
+        return jsonify({"ok": True, "message": f"開始監控 {WATCH_FOLDER}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/watch/stop", methods=["POST"])
+def stop_watch():
+    """停止資料夾監控"""
+    global _watcher_thread, _watcher_observer
+    if _watcher_observer:
+        _watcher_observer.stop()
+        _watcher_observer = None
+        _watcher_thread = None
     return jsonify({"ok": True})
 
 

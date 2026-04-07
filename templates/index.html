@@ -170,6 +170,20 @@
       </div>
 
 
+      <!-- 資料夾監控 -->
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-sm font-semibold text-gray-900">資料夾監控</h3>
+          <button id="watch-toggle" onclick="toggleWatch()"
+            class="px-3 py-1.5 text-xs rounded-lg border transition-colors">
+            載入中...
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mb-2">丟檔案進資料夾自動處理，完成後收到系統通知</p>
+        <p id="watch-folder-path" class="text-xs text-gray-400 font-mono"></p>
+        <p id="watch-status-msg" class="text-xs mt-1"></p>
+      </div>
+
       <!-- Prompt 編輯 -->
       <div class="bg-white border border-gray-200 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-900 mb-1">Prompt 範本</h3>
@@ -420,6 +434,9 @@ async function loadSettings() {
     // Prompt
     await loadPrompt()
 
+    // Watch
+    await loadWatchStatus()
+
   } catch (err) {
     console.error(err)
   }
@@ -563,6 +580,49 @@ async function savePrompt() {
     status.className = 'text-xs mt-2 text-right text-red-600'
   }
   setTimeout(() => { status.textContent = '' }, 2000)
+}
+
+// ===== Watch =====
+
+async function loadWatchStatus() {
+  try {
+    const res = await fetch('/watch')
+    const data = await res.json()
+    const btn = document.getElementById('watch-toggle')
+    const folderEl = document.getElementById('watch-folder-path')
+    folderEl.textContent = data.folder
+
+    if (data.running) {
+      btn.textContent = '停止監控'
+      btn.className = 'px-3 py-1.5 text-xs rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors'
+    } else {
+      btn.textContent = '啟動監控'
+      btn.className = 'px-3 py-1.5 text-xs rounded-lg border border-green-200 text-green-600 hover:bg-green-50 transition-colors'
+    }
+  } catch {}
+}
+
+async function toggleWatch() {
+  const btn = document.getElementById('watch-toggle')
+  const isRunning = btn.textContent === '停止監控'
+  const msg = document.getElementById('watch-status-msg')
+
+  try {
+    const res = await fetch(isRunning ? '/watch/stop' : '/watch/start', { method: 'POST' })
+    const data = await res.json()
+    if (data.error) {
+      msg.textContent = data.error
+      msg.className = 'text-xs mt-1 text-red-600'
+    } else {
+      msg.textContent = data.message || (isRunning ? '已停止' : '已啟動')
+      msg.className = 'text-xs mt-1 text-green-600'
+    }
+    await loadWatchStatus()
+    setTimeout(() => { msg.textContent = '' }, 3000)
+  } catch {
+    msg.textContent = '操作失敗'
+    msg.className = 'text-xs mt-1 text-red-600'
+  }
 }
 
 // ===== Utils =====
