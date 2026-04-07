@@ -763,6 +763,75 @@ def stop_watch():
     return jsonify({"ok": True})
 
 
+@app.route("/watch/retry/<int:index>", methods=["POST"])
+def retry_watch(index):
+    """重新處理失敗的記錄"""
+    history = _watch_progress["history"]
+    if index < 0 or index >= len(history):
+        return jsonify({"error": "找不到記錄"}), 404
+
+    record = history[index]
+    if record["status"] != "error":
+        return jsonify({"error": "該記錄未失敗"}), 400
+
+    # 檢查歸檔資料夾是否有原檔
+    archive = Path(os.getenv("ARCHIVE_FOLDER", "~/Desktop/MeetingDrop/processed")).expanduser()
+    watch = Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()
+
+    filename = record["filename"]
+    archive_path = archive / filename
+    watch_path = watch / filename
+
+    if archive_path.exists():
+        # 從歸檔移回監控資料夾
+        archive_path.rename(watch_path)
+    elif not watch_path.exists():
+        return jsonify({"error": f"找不到原始檔案：{filename}"}), 404
+
+    # 移除舊的失敗記錄
+    history.pop(index)
+    _save_watch_history(history)
+
+    # 加入佇列
+    _enqueue_file(watch_path)
+    return jsonify({"ok": True, "message": f"已重新排入佇列：{filename}"})
+
+
+@app.route("/watch/retry-all", methods=["POST"])
+def retry_all_failed():
+    """重新處理所有失敗的記錄"""
+    history = _watch_progress["history"]
+    archive = Path(os.getenv("ARCHIVE_FOLDER", "~/Desktop/MeetingDrop/processed")).expanduser()
+    watch = Path(os.getenv("WATCH_FOLDER", "~/Desktop/MeetingDrop")).expanduser()
+
+    retried = 0
+    to_remove = []
+
+    for i, record in enumerate(history):
+        if record["status"] != "error":
+            continue
+
+        filename = record["filename"]
+        archive_path = archive / filename
+        watch_path = watch / filename
+
+        if archive_path.exists():
+            archive_path.rename(watch_path)
+        elif not watch_path.exists():
+            continue
+
+        to_remove.append(i)
+        _enqueue_file(watch_path)
+        retried += 1
+
+    # 從後往前刪，避免 index 偏移
+    for i in reversed(to_remove):
+        history.pop(i)
+    _save_watch_history(history)
+
+    return jsonify({"ok": True, "count": retried})
+
+
 @app.route("/watch/open", methods=["POST"])
 def open_watch_folder():
     """在 Finder 打開監控資料夾"""

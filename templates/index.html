@@ -5,27 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>會議記錄</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     .tab-active { border-bottom: 2px solid #2563eb; color: #2563eb; }
     .tab-inactive { color: #6b7280; border-bottom: 2px solid transparent; }
+    .dark .tab-inactive { color: #9ca3af; }
+    .dark .tab-active { border-bottom-color: #60a5fa; color: #60a5fa; }
     .drop-active { border-color: #2563eb; background: #eff6ff; }
+    .dark .drop-active { background: #1e3a5f; }
     #log-panel { font-family: "SF Mono", Monaco, monospace; }
     .spinner { border: 2px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; width: 16px; height: 16px; animation: spin 0.6s linear infinite; display: inline-block; vertical-align: middle; }
+    .dark .spinner { border-color: #374151; border-top-color: #60a5fa; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
     .fade-in { animation: fadeIn 0.2s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen text-gray-900 dark:text-gray-100 transition-colors">
 
 <div class="max-w-2xl mx-auto px-4 py-10 pb-16">
 
   <!-- Header -->
-  <div class="mb-8">
-    <h1 class="text-2xl font-semibold text-gray-900">會議記錄</h1>
-    <p class="text-sm text-gray-500 mt-1">錄音 / 錄影 → Gemini → Google Doc</p>
+  <div class="mb-8 flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-100">會議記錄</h1>
+      <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">錄音 / 錄影 → Gemini → Google Doc</p>
+    </div>
+    <button onclick="toggleDarkMode()" id="dark-mode-btn" class="p-2 rounded-lg text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" title="切換深色模式">
+      <svg id="icon-sun" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      <svg id="icon-moon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+    </button>
   </div>
 
   <!-- Alert Banner（設定不完整時顯示） -->
@@ -35,7 +46,7 @@
   </div>
 
   <!-- Tabs -->
-  <div class="flex gap-6 border-b border-gray-200 mb-6">
+  <div class="flex gap-6 border-b border-gray-200 dark:border-gray-700 mb-6">
     <button onclick="showTab('upload')" id="tab-upload" class="tab-active pb-3 text-sm font-medium transition-colors">上傳處理</button>
     <button onclick="showTab('activity')" id="tab-activity" class="tab-inactive pb-3 text-sm font-medium transition-colors">活動</button>
     <button onclick="showTab('history')" id="tab-history" class="tab-inactive pb-3 text-sm font-medium transition-colors">歷史記錄</button>
@@ -64,7 +75,7 @@
 
     <!-- Drop Zone -->
     <div id="drop-zone"
-      class="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50"
+      class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-800"
       onclick="document.getElementById('file-input').click()"
       ondragover="onDragOver(event)"
       ondragleave="onDragLeave(event)"
@@ -94,7 +105,7 @@
 
     <!-- Processing Panel -->
     <div id="processing-panel" class="hidden mt-6 fade-in">
-      <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
 
         <!-- Header -->
         <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -139,7 +150,7 @@
   <div id="panel-activity" class="hidden">
 
     <!-- 監控狀態 -->
-    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 mb-4">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <span id="act-watch-dot" class="status-dot bg-gray-300"></span>
@@ -178,7 +189,7 @@
     </div>
 
     <!-- 快速設定 -->
-    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 mb-4">
       <h3 class="text-sm font-semibold text-gray-900 mb-3">快速設定</h3>
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -208,9 +219,10 @@
     </div>
 
     <!-- 處理記錄 -->
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div class="px-5 py-3 border-b border-gray-100">
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+      <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-gray-900">處理記錄</h3>
+        <button id="act-retry-all" onclick="retryAllFailed()" class="hidden text-xs text-red-600 hover:underline">全部重試失敗項目</button>
       </div>
       <div id="act-history-list" class="divide-y divide-gray-100">
         <p class="text-sm text-gray-400 text-center py-6">載入中...</p>
@@ -221,6 +233,10 @@
 
   <!-- ===== Tab: History ===== -->
   <div id="panel-history" class="hidden">
+    <div class="mb-4">
+      <input type="text" id="history-search" placeholder="搜尋會議記錄..." oninput="filterHistory()"
+        class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
     <div id="history-list">
       <p class="text-sm text-gray-400 text-center py-8">載入中...</p>
     </div>
@@ -231,14 +247,14 @@
     <div class="space-y-6">
 
       <!-- Gemini API Key -->
-      <div class="bg-white border border-gray-200 rounded-xl p-5">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-900 mb-1">Gemini API Key</h3>
         <p class="text-xs text-gray-500 mb-3">
           從 <a href="https://aistudio.google.com/apikey" target="_blank" class="text-blue-600 hover:underline">aistudio.google.com/apikey</a> 取得
         </p>
         <div class="flex gap-2">
           <input type="password" id="input-gemini-key" placeholder="AIza..." autocomplete="off"
-            class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            class="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           <button onclick="saveGeminiKey()"
             class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
             儲存
@@ -248,11 +264,11 @@
       </div>
 
       <!-- 輸出長度 -->
-      <div class="bg-white border border-gray-200 rounded-xl p-5">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-900 mb-1">輸出詳細程度</h3>
         <p class="text-xs text-gray-500 mb-3">控制會議記錄的詳細程度，越長越詳細</p>
         <select id="input-output-length" onchange="saveOutputLength()"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="8192">精簡（30 分鐘以內）</option>
           <option value="16384">標準（1 小時以內）</option>
           <option value="32768">詳細（1-2 小時）</option>
@@ -262,11 +278,11 @@
       </div>
 
       <!-- 輸出語言 -->
-      <div class="bg-white border border-gray-200 rounded-xl p-5">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-900 mb-1">輸出語言</h3>
         <p class="text-xs text-gray-500 mb-3">預設自動偵測錄音語言，也可指定固定語言</p>
         <select id="input-output-language" onchange="saveOutputLanguage()"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="auto" selected>自動偵測（依錄音語言）</option>
           <option value="zh-TW">繁體中文</option>
           <option value="zh-CN">簡體中文</option>
@@ -278,7 +294,7 @@
       </div>
 
       <!-- Google Drive Folder -->
-      <div class="bg-white border border-gray-200 rounded-xl p-5">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-900 mb-1">儲存位置</h3>
         <p class="text-xs text-gray-500 mb-3">會議記錄會存到這個 Google Drive 資料夾</p>
         <div class="flex items-center gap-2 mb-2">
@@ -325,7 +341,7 @@
 
 
       <!-- 資料夾監控 -->
-      <div class="bg-white border border-gray-200 rounded-xl p-5">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <div class="flex items-center justify-between mb-1">
           <h3 class="text-sm font-semibold text-gray-900">資料夾監控</h3>
           <button id="watch-toggle" onclick="toggleWatch()"
@@ -342,7 +358,7 @@
       </div>
 
       <!-- Prompt 編輯 -->
-      <div class="bg-white border border-gray-200 rounded-xl p-5">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
         <div class="flex items-center justify-between mb-1">
           <h3 class="text-sm font-semibold text-gray-900">Prompt 範本</h3>
         </div>
@@ -379,7 +395,7 @@
 </div>
 
 <!-- 底部狀態列 -->
-<div id="status-bar" class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-2 flex items-center justify-between text-xs z-40">
+<div id="status-bar" class="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center justify-between text-xs z-40">
   <div class="flex items-center gap-3">
     <!-- 監控狀態 -->
     <div class="flex items-center gap-1.5">
@@ -681,35 +697,56 @@ function copyDocLink() {
 
 // ===== History =====
 
+let _historyRecords = []
+
 async function loadHistory() {
   const container = document.getElementById('history-list')
   container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">載入中...</p>'
 
   try {
     const res = await fetch('/history')
-    const records = await res.json()
-
-    if (!records.length) {
-      container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">尚無已處理的記錄</p>'
-      return
-    }
-
-    container.innerHTML = records.map(r => `
-      <div class="flex items-center justify-between py-3 border-b border-gray-100 last:border-0 fade-in">
-        <div class="min-w-0 flex-1">
-          <a href="${escHtml(r.url)}" target="_blank"
-            class="text-sm text-blue-600 hover:underline font-medium truncate block">${escHtml(r.title)}</a>
-          <p class="text-xs text-gray-400 mt-0.5">${escHtml(r.time)} · ${escHtml(r.original)}${r.language ? ' · ' + escHtml(r.language) : ''}</p>
-        </div>
-        <a href="${escHtml(r.url)}" target="_blank"
-          class="ml-3 shrink-0 px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors">
-          開啟
-        </a>
-      </div>
-    `).join('')
+    _historyRecords = await res.json()
+    renderHistory(_historyRecords)
   } catch {
     container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">載入失敗</p>'
   }
+}
+
+function filterHistory() {
+  const q = document.getElementById('history-search').value.trim().toLowerCase()
+  if (!q) {
+    renderHistory(_historyRecords)
+    return
+  }
+  const filtered = _historyRecords.filter(r =>
+    (r.title || '').toLowerCase().includes(q) ||
+    (r.original || '').toLowerCase().includes(q) ||
+    (r.language || '').toLowerCase().includes(q) ||
+    (r.time || '').includes(q)
+  )
+  renderHistory(filtered)
+}
+
+function renderHistory(records) {
+  const container = document.getElementById('history-list')
+  if (!records.length) {
+    container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">尚無符合的記錄</p>'
+    return
+  }
+
+  container.innerHTML = records.map(r => `
+    <div class="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 fade-in">
+      <div class="min-w-0 flex-1">
+        <a href="${escHtml(r.url)}" target="_blank"
+          class="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium truncate block">${escHtml(r.title)}</a>
+        <p class="text-xs text-gray-400 mt-0.5">${escHtml(r.time)} · ${escHtml(r.original)}${r.language ? ' · ' + escHtml(r.language) : ''}</p>
+      </div>
+      <a href="${escHtml(r.url)}" target="_blank"
+        class="ml-3 shrink-0 px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors">
+        開啟
+      </a>
+    </div>
+  `).join('')
 }
 
 // ===== Settings =====
@@ -1124,14 +1161,21 @@ async function refreshActivity() {
     const histEl = document.getElementById('act-history-list')
     const recent = (data.recent || []).slice().reverse()
 
+    // 顯示/隱藏全部重試按鈕
+    const hasFailed = recent.some(r => r.status === 'error')
+    document.getElementById('act-retry-all').classList.toggle('hidden', !hasFailed)
+
     if (!recent.length) {
       histEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">尚無處理記錄</p>'
     } else {
+      // recent 是已反轉（新在前），但 index 需要對應原始 history 陣列
+      const totalHistory = (data.recent || []).length
       histEl.innerHTML = recent.map((r, idx) => {
         const isOk = r.status === 'done'
         const statusDot = isOk ? 'bg-green-500' : 'bg-red-400'
-        const statusText = isOk ? '完成' : '失敗'
         const hasLogs = r.logs && r.logs.length > 0
+        // 原始 history index（recent 是倒序的）
+        const origIdx = totalHistory - 1 - idx
 
         return `
         <div class="px-5 py-3">
@@ -1143,10 +1187,11 @@ async function refreshActivity() {
             </div>
             <div class="flex items-center gap-2 shrink-0 ml-2">
               ${isOk && r.doc_url ? `<a href="${escHtml(r.doc_url)}" target="_blank" class="text-xs text-blue-600 hover:underline">開啟</a>` : ''}
-              ${!isOk && r.error ? `<span class="text-xs text-red-500" title="${escHtml(r.error)}">錯誤</span>` : ''}
+              ${!isOk ? `<button onclick="retryFailed(${origIdx})" class="text-xs text-red-600 hover:underline">重試</button>` : ''}
               ${hasLogs ? `<button onclick="toggleActLog(this)" class="text-xs text-gray-400 hover:text-gray-600">log</button>` : ''}
             </div>
           </div>
+          ${!isOk && r.error ? `<p class="text-xs text-red-400 mt-1">${escHtml(r.error)}</p>` : ''}
           ${hasLogs ? `<div class="hidden mt-2 bg-gray-950 text-green-400 text-xs font-mono px-3 py-2 rounded-lg max-h-32 overflow-y-auto leading-relaxed act-log-detail">${r.logs.map(l => `<div>> ${escHtml(l)}</div>`).join('')}</div>` : ''}
         </div>`
       }).join('')
@@ -1157,6 +1202,34 @@ async function refreshActivity() {
 function toggleActLog(btn) {
   const detail = btn.closest('.px-5').querySelector('.act-log-detail')
   if (detail) detail.classList.toggle('hidden')
+}
+
+async function retryFailed(index) {
+  try {
+    const res = await fetch(`/watch/retry/${index}`, { method: 'POST' })
+    const data = await res.json()
+    if (data.error) {
+      alert(data.error)
+    } else {
+      refreshActivity()
+    }
+  } catch {
+    alert('重試失敗')
+  }
+}
+
+async function retryAllFailed() {
+  try {
+    const res = await fetch('/watch/retry-all', { method: 'POST' })
+    const data = await res.json()
+    if (data.error) {
+      alert(data.error)
+    } else {
+      refreshActivity()
+    }
+  } catch {
+    alert('重試失敗')
+  }
 }
 
 async function quickSaveSetting(key, value) {
@@ -1365,6 +1438,29 @@ async function checkActiveJobs() {
     }
   } catch {}
 }
+
+// ===== Dark Mode =====
+
+function toggleDarkMode() {
+  const html = document.documentElement
+  const isDark = html.classList.toggle('dark')
+  localStorage.setItem('darkMode', isDark ? '1' : '0')
+  updateDarkModeIcon(isDark)
+}
+
+function updateDarkModeIcon(isDark) {
+  document.getElementById('icon-sun').classList.toggle('hidden', !isDark)
+  document.getElementById('icon-moon').classList.toggle('hidden', isDark)
+}
+
+// 載入儲存的深色模式設定
+(function() {
+  const saved = localStorage.getItem('darkMode')
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const isDark = saved === '1' || (saved === null && prefersDark)
+  if (isDark) document.documentElement.classList.add('dark')
+  updateDarkModeIcon(isDark)
+})()
 
 // ===== Init =====
 checkStatus()
