@@ -84,6 +84,35 @@ def drive_folders():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/drive/create-folder", methods=["POST"])
+def drive_create_folder():
+    """在 Google Drive 建立新資料夾"""
+    data = request.get_json()
+    if not data or not data.get("name"):
+        return jsonify({"error": "缺少資料夾名稱"}), 400
+
+    try:
+        from process_meeting import get_google_creds
+        from googleapiclient.discovery import build as gapi_build
+
+        creds = get_google_creds()
+        drive = gapi_build("drive", "v3", credentials=creds)
+
+        parent = data.get("parent", "root")
+        file_metadata = {
+            "name": data["name"],
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        if parent and parent != "root":
+            file_metadata["parents"] = [parent]
+
+        folder = drive.files().create(body=file_metadata, fields="id, name").execute()
+        return jsonify({"id": folder["id"], "name": folder["name"]})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if "file" not in request.files:

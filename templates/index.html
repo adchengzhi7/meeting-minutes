@@ -44,6 +44,23 @@
   <!-- ===== Tab: Upload ===== -->
   <div id="panel-upload">
 
+    <!-- 首次設定引導（未設定完成時顯示） -->
+    <div id="setup-guide" class="hidden mb-6 bg-white border border-blue-200 rounded-xl p-5 fade-in">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">開始之前，請先完成設定</h3>
+      <div class="space-y-2">
+        <div class="flex items-center gap-2" id="guide-apikey">
+          <span class="status-dot bg-gray-300" id="guide-apikey-dot"></span>
+          <span class="text-sm text-gray-600">Gemini API Key</span>
+          <button onclick="showTab('settings')" class="ml-auto text-xs text-blue-600 hover:underline">前往設定</button>
+        </div>
+        <div class="flex items-center gap-2" id="guide-folder">
+          <span class="status-dot bg-gray-300" id="guide-folder-dot"></span>
+          <span class="text-sm text-gray-600">Google Drive 儲存位置</span>
+          <button onclick="openFolderPicker()" class="ml-auto text-xs text-blue-600 hover:underline">選擇資料夾</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Drop Zone -->
     <div id="drop-zone"
       class="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50"
@@ -58,6 +75,15 @@
     <input type="file" id="file-input" class="hidden"
       accept=".mp4,.mkv,.mov,.avi,.webm,.m4a,.mp3,.wav,.ogg,.flac,.aac,.wma"
       onchange="onFileSelected(this)">
+
+    <!-- 儲存位置（上傳頁快速檢視/切換） -->
+    <div class="mt-3 flex items-center justify-between px-1">
+      <div class="flex items-center gap-1.5 text-xs text-gray-400">
+        <span>&#128193;</span>
+        <span id="upload-folder-name">未設定</span>
+      </div>
+      <button onclick="openFolderPicker()" class="text-xs text-blue-600 hover:underline">變更</button>
+    </div>
 
     <!-- Processing Panel -->
     <div id="processing-panel" class="hidden mt-6 fade-in">
@@ -149,7 +175,10 @@
       <div id="folder-picker-modal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
         <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-gray-900">選擇資料夾</h3>
+            <div class="flex items-center gap-2">
+              <button id="folder-back-btn" onclick="folderGoBack()" class="hidden text-gray-400 hover:text-gray-700 text-sm px-1" title="上一層">&#9664;</button>
+              <h3 class="text-sm font-semibold text-gray-900">選擇資料夾</h3>
+            </div>
             <button onclick="closeFolderPicker()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
           </div>
           <!-- Breadcrumb -->
@@ -159,12 +188,16 @@
             <p class="text-sm text-gray-400 text-center py-6">載入中...</p>
           </div>
           <!-- Actions -->
-          <div class="px-4 py-3 border-t border-gray-100 flex justify-between items-center">
+          <div class="px-4 py-3 border-t border-gray-100 flex items-center gap-2">
             <button onclick="selectCurrentFolder()"
               class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
               選擇此資料夾
             </button>
-            <button onclick="closeFolderPicker()" class="text-sm text-gray-500 hover:underline">取消</button>
+            <button onclick="createNewFolder()"
+              class="px-3 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 transition-colors text-gray-600">
+              新增資料夾
+            </button>
+            <button onclick="closeFolderPicker()" class="ml-auto text-sm text-gray-500 hover:underline">取消</button>
           </div>
         </div>
       </div>
@@ -231,6 +264,35 @@ async function checkStatus() {
       const banner = document.getElementById('alert-banner')
       document.getElementById('alert-text').textContent = '設定不完整：' + data.issues.join('、')
       banner.classList.remove('hidden')
+    }
+
+    // 首次設定引導
+    const guide = document.getElementById('setup-guide')
+    const settingsRes = await fetch('/settings')
+    const settings = await settingsRes.json()
+
+    const hasKey = settings.GEMINI_API_KEY_SET
+    const hasFolder = settings.GDRIVE_FOLDER_ID && settings.GDRIVE_FOLDER_ID !== 'your_google_drive_folder_id_here'
+
+    document.getElementById('guide-apikey-dot').className = `status-dot ${hasKey ? 'bg-green-500' : 'bg-amber-400'}`
+    document.getElementById('guide-folder-dot').className = `status-dot ${hasFolder ? 'bg-green-500' : 'bg-amber-400'}`
+
+    if (!hasKey || !hasFolder) {
+      guide.classList.remove('hidden')
+    } else {
+      guide.classList.add('hidden')
+    }
+
+    // 上傳頁資料夾名稱
+    if (hasFolder) {
+      try {
+        const fRes = await fetch(`/drive/folders?parent=${settings.GDRIVE_FOLDER_ID}`)
+        const fData = await fRes.json()
+        if (fData.current) {
+          document.getElementById('upload-folder-name').textContent = fData.current
+          document.getElementById('selected-folder-name').textContent = fData.current
+        }
+      } catch {}
     }
   } catch {}
 }
@@ -501,23 +563,32 @@ async function loadFolders(parentId) {
   listEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">載入中...</p>'
   renderBreadcrumb()
 
+  // 顯示/隱藏上一層按鈕
+  const backBtn = document.getElementById('folder-back-btn')
+  backBtn.classList.toggle('hidden', pickerPath.length <= 1)
+
+  const currentFolderId = document.getElementById('input-folder-id').value
+
   try {
     const res = await fetch(`/drive/folders?parent=${parentId}`)
     const data = await res.json()
     if (data.error) throw new Error(data.error)
 
     if (!data.folders.length) {
-      listEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">沒有子資料夾</p>'
+      listEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">沒有子資料夾（可直接選擇此資料夾）</p>'
       return
     }
 
-    listEl.innerHTML = data.folders.map(f => `
+    listEl.innerHTML = data.folders.map(f => {
+      const isSelected = f.id === currentFolderId
+      return `
       <button onclick="navigateFolder('${f.id}', '${escAttr(f.name)}')"
-        class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors">
+        class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors ${isSelected ? 'bg-blue-50 ring-1 ring-blue-200' : ''}">
         <span class="text-blue-500">&#128193;</span>
-        <span class="text-sm text-gray-800">${escHtml(f.name)}</span>
-      </button>
-    `).join('')
+        <span class="text-sm text-gray-800 flex-1">${escHtml(f.name)}</span>
+        ${isSelected ? '<span class="text-xs text-blue-600">目前</span>' : ''}
+      </button>`
+    }).join('')
   } catch (err) {
     listEl.innerHTML = `<p class="text-sm text-red-400 text-center py-6">${escHtml(err.message)}</p>`
   }
@@ -548,7 +619,42 @@ function selectCurrentFolder() {
   const id = current.id === 'root' ? '' : current.id
   const name = current.name
   saveFolderId(id, name)
+  document.getElementById('upload-folder-name').textContent = name
   closeFolderPicker()
+
+  // 更新引導狀態
+  document.getElementById('guide-folder-dot').className = 'status-dot bg-green-500'
+  checkStatus()
+}
+
+function folderGoBack() {
+  if (pickerPath.length > 1) {
+    pickerPath.pop()
+    loadFolders(pickerPath[pickerPath.length - 1].id)
+  }
+}
+
+async function createNewFolder() {
+  const name = prompt('新資料夾名稱：')
+  if (!name || !name.trim()) return
+
+  const parentId = pickerPath[pickerPath.length - 1].id
+  try {
+    const res = await fetch('/drive/create-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), parent: parentId }),
+    })
+    const data = await res.json()
+    if (data.error) {
+      alert(data.error)
+      return
+    }
+    // 進入新建的資料夾
+    navigateFolder(data.id, data.name)
+  } catch {
+    alert('建立失敗')
+  }
 }
 
 function escAttr(str) {
