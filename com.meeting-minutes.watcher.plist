@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.meeting-minutes.watcher</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/alexd/projects/meeting-minutes/.venv/bin/python</string>
+        <string>/Users/alexd/projects/meeting-minutes/watch_folder.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/alexd/projects/meeting-minutes</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/alexd/projects/meeting-minutes/watcher.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/alexd/projects/meeting-minutes/watcher-error.log</string>
+</dict>
+</plist>

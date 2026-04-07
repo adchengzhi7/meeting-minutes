@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>會議記錄</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .tab-active { border-bottom: 2px solid #2563eb; color: #2563eb; }
+    .tab-inactive { color: #6b7280; border-bottom: 2px solid transparent; }
+    .drop-active { border-color: #2563eb; background: #eff6ff; }
+    #log-panel { font-family: "SF Mono", Monaco, monospace; }
+    .spinner { border: 2px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; width: 16px; height: 16px; animation: spin 0.6s linear infinite; display: inline-block; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .fade-in { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div class="max-w-2xl mx-auto px-4 py-10">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-semibold text-gray-900">會議記錄</h1>
+    <p class="text-sm text-gray-500 mt-1">錄音 / 錄影 → Gemini → Google Doc</p>
+  </div>
+
+  <!-- Alert Banner（設定不完整時顯示） -->
+  <div id="alert-banner" class="hidden mb-6 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+    <span id="alert-text"></span>
+    <button onclick="showTab('settings')" class="ml-2 underline font-medium">前往設定</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex gap-6 border-b border-gray-200 mb-6">
+    <button onclick="showTab('upload')" id="tab-upload" class="tab-active pb-3 text-sm font-medium transition-colors">上傳處理</button>
+    <button onclick="showTab('history')" id="tab-history" class="tab-inactive pb-3 text-sm font-medium transition-colors">歷史記錄</button>
+    <button onclick="showTab('settings')" id="tab-settings" class="tab-inactive pb-3 text-sm font-medium transition-colors">設定</button>
+  </div>
+
+  <!-- ===== Tab: Upload ===== -->
+  <div id="panel-upload">
+
+    <!-- Drop Zone -->
+    <div id="drop-zone"
+      class="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50"
+      onclick="document.getElementById('file-input').click()"
+      ondragover="onDragOver(event)"
+      ondragleave="onDragLeave(event)"
+      ondrop="onDrop(event)">
+      <div class="text-4xl mb-3">🎙️</div>
+      <p class="text-gray-700 font-medium">點擊或拖放會議錄音/錄影</p>
+      <p class="text-xs text-gray-400 mt-2">mp4 · mkv · mov · m4a · mp3 · wav · flac · aac · webm</p>
+    </div>
+    <input type="file" id="file-input" class="hidden"
+      accept=".mp4,.mkv,.mov,.avi,.webm,.m4a,.mp3,.wav,.ogg,.flac,.aac,.wma"
+      onchange="onFileSelected(this)">
+
+    <!-- Processing Panel -->
+    <div id="processing-panel" class="hidden mt-6 fade-in">
+      <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+
+        <!-- Header -->
+        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span id="proc-spinner" class="spinner"></span>
+            <span id="proc-filename" class="text-sm font-medium text-gray-700"></span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span id="proc-timer" class="text-xs text-gray-400 font-mono">00:00</span>
+            <span id="proc-status" class="text-xs text-gray-400">處理中...</span>
+          </div>
+        </div>
+
+        <!-- Log Output -->
+        <div id="log-panel" class="bg-gray-950 text-green-400 text-xs px-4 py-3 h-48 overflow-y-auto leading-relaxed"></div>
+
+        <!-- Result -->
+        <div id="result-panel" class="hidden px-4 py-4 bg-blue-50 border-t border-blue-100">
+          <p class="text-sm text-blue-800 font-medium mb-2">會議記錄已產生</p>
+          <div class="flex items-center gap-2 mb-3">
+            <a id="doc-link" href="#" target="_blank"
+              class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+              開啟 Google Doc
+            </a>
+          </div>
+          <button onclick="resetUpload()" class="text-sm text-blue-600 hover:underline">處理另一個檔案</button>
+        </div>
+
+        <!-- Error -->
+        <div id="error-panel" class="hidden px-4 py-4 bg-red-50 border-t border-red-100">
+          <p class="text-sm text-red-700 font-medium">處理失敗</p>
+          <p id="error-msg" class="text-xs text-red-600 mt-1"></p>
+          <button onclick="resetUpload()" class="mt-2 text-sm text-red-600 hover:underline">重試</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== Tab: History ===== -->
+  <div id="panel-history" class="hidden">
+    <div id="history-list">
+      <p class="text-sm text-gray-400 text-center py-8">載入中...</p>
+    </div>
+  </div>
+
+  <!-- ===== Tab: Settings ===== -->
+  <div id="panel-settings" class="hidden">
+    <div class="space-y-6">
+
+      <!-- Gemini API Key -->
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-gray-900 mb-1">Gemini API Key</h3>
+        <p class="text-xs text-gray-500 mb-3">
+          從 <a href="https://aistudio.google.com/apikey" target="_blank" class="text-blue-600 hover:underline">aistudio.google.com/apikey</a> 取得
+        </p>
+        <div class="flex gap-2">
+          <input type="password" id="input-gemini-key" placeholder="AIza..." autocomplete="off"
+            class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <button onclick="saveGeminiKey()"
+            class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+            儲存
+          </button>
+        </div>
+        <p id="gemini-status" class="text-xs mt-2"></p>
+      </div>
+
+      <!-- Google Drive Folder -->
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-gray-900 mb-1">儲存位置</h3>
+        <p class="text-xs text-gray-500 mb-3">會議記錄會存到這個 Google Drive 資料夾</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span id="selected-folder-name" class="text-sm text-gray-700">未設定（存到雲端硬碟根目錄）</span>
+          <button onclick="openFolderPicker()"
+            class="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 transition-colors">
+            選擇資料夾
+          </button>
+        </div>
+        <input type="hidden" id="input-folder-id">
+        <p id="folder-status" class="text-xs mt-2"></p>
+      </div>
+
+      <!-- Folder Picker Modal -->
+      <div id="folder-picker-modal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-900">選擇資料夾</h3>
+            <button onclick="closeFolderPicker()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+          </div>
+          <!-- Breadcrumb -->
+          <div id="folder-breadcrumb" class="px-4 py-2 bg-gray-50 text-xs text-gray-500 flex items-center gap-1 overflow-x-auto"></div>
+          <!-- Folder list -->
+          <div id="folder-list" class="px-2 py-2 max-h-72 overflow-y-auto">
+            <p class="text-sm text-gray-400 text-center py-6">載入中...</p>
+          </div>
+          <!-- Actions -->
+          <div class="px-4 py-3 border-t border-gray-100 flex justify-between items-center">
+            <button onclick="selectCurrentFolder()"
+              class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+              選擇此資料夾
+            </button>
+            <button onclick="closeFolderPicker()" class="text-sm text-gray-500 hover:underline">取消</button>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- Prompt 編輯 -->
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-gray-900 mb-1">Prompt 範本</h3>
+        <p class="text-xs text-gray-500 mb-3">調整 Gemini 產生會議記錄的格式與規則</p>
+        <textarea id="prompt-editor" rows="12"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+          placeholder="載入中..."></textarea>
+        <div class="flex justify-end mt-2">
+          <button onclick="savePrompt()"
+            class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+            儲存 Prompt
+          </button>
+        </div>
+        <p id="prompt-status" class="text-xs mt-2 text-right"></p>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ===== Tab management =====
+
+let currentTab = 'upload'
+
+function showTab(name) {
+  ['upload', 'history', 'settings'].forEach(t => {
+    document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== name)
+    const btn = document.getElementById(`tab-${t}`)
+    btn.className = `${t === name ? 'tab-active' : 'tab-inactive'} pb-3 text-sm font-medium transition-colors`
+  })
+  currentTab = name
+  if (name === 'history') loadHistory()
+  if (name === 'settings') loadSettings()
+}
+
+// ===== Status check =====
+
+async function checkStatus() {
+  try {
+    const res = await fetch('/status')
+    const data = await res.json()
+    if (!data.ready) {
+      const banner = document.getElementById('alert-banner')
+      document.getElementById('alert-text').textContent = '設定不完整：' + data.issues.join('、')
+      banner.classList.remove('hidden')
+    }
+  } catch {}
+}
+
+// ===== Timer =====
+let timerInterval = null
+let timerStart = 0
+
+function startTimer() {
+  timerStart = Date.now()
+  document.getElementById('proc-timer').textContent = '00:00'
+  timerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - timerStart) / 1000)
+    const min = String(Math.floor(elapsed / 60)).padStart(2, '0')
+    const sec = String(elapsed % 60).padStart(2, '0')
+    document.getElementById('proc-timer').textContent = `${min}:${sec}`
+  }, 1000)
+}
+
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
+}
+
+// ===== Upload & Processing =====
+
+function onDragOver(e) {
+  e.preventDefault()
+  document.getElementById('drop-zone').classList.add('drop-active')
+}
+
+function onDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('drop-active')
+}
+
+function onDrop(e) {
+  e.preventDefault()
+  document.getElementById('drop-zone').classList.remove('drop-active')
+  const file = e.dataTransfer.files[0]
+  if (file) startUpload(file)
+}
+
+function onFileSelected(input) {
+  if (input.files[0]) startUpload(input.files[0])
+}
+
+async function startUpload(file) {
+  document.getElementById('drop-zone').classList.add('hidden')
+  document.getElementById('processing-panel').classList.remove('hidden')
+  document.getElementById('proc-filename').textContent = file.name
+  document.getElementById('proc-status').textContent = '上傳中...'
+  document.getElementById('result-panel').classList.add('hidden')
+  document.getElementById('error-panel').classList.add('hidden')
+  document.getElementById('log-panel').innerHTML = ''
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  let jobId
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: formData })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    jobId = data.job_id
+  } catch (err) {
+    showError(err.message)
+    return
+  }
+
+  document.getElementById('proc-status').textContent = '處理中...'
+  startTimer()
+  listenToJob(jobId)
+}
+
+function listenToJob(jobId) {
+  const logPanel = document.getElementById('log-panel')
+  const es = new EventSource(`/stream/${jobId}`)
+
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data)
+
+    if (data.type === 'ping') return
+
+    if (data.type === 'log') {
+      const line = document.createElement('div')
+      line.textContent = '> ' + data.message
+      logPanel.appendChild(line)
+      logPanel.scrollTop = logPanel.scrollHeight
+      return
+    }
+
+    if (data.type === 'done') {
+      es.close()
+      stopTimer()
+      document.getElementById('proc-spinner').style.display = 'none'
+
+      if (data.status === 'done' && data.doc_url) {
+        document.getElementById('proc-status').textContent = '完成'
+        document.getElementById('doc-link').href = data.doc_url
+        document.getElementById('result-panel').classList.remove('hidden')
+      } else {
+        showError(data.error || '未知錯誤')
+      }
+    }
+  }
+
+  es.onerror = () => {
+    es.close()
+    showError('連線中斷，請重試')
+  }
+}
+
+function showError(msg) {
+  stopTimer()
+  document.getElementById('proc-spinner').style.display = 'none'
+  document.getElementById('proc-status').textContent = '失敗'
+  document.getElementById('error-msg').textContent = msg
+  document.getElementById('error-panel').classList.remove('hidden')
+}
+
+function resetUpload() {
+  stopTimer()
+  document.getElementById('drop-zone').classList.remove('hidden')
+  document.getElementById('processing-panel').classList.add('hidden')
+  document.getElementById('proc-spinner').style.display = 'inline-block'
+  document.getElementById('proc-timer').textContent = '00:00'
+  document.getElementById('file-input').value = ''
+}
+
+function copyDocLink() {
+  const url = document.getElementById('doc-link').href
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('copy-btn')
+    btn.textContent = '已複製'
+    setTimeout(() => { btn.textContent = '複製連結' }, 2000)
+  })
+}
+
+// ===== History =====
+
+async function loadHistory() {
+  const container = document.getElementById('history-list')
+  container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">載入中...</p>'
+
+  try {
+    const res = await fetch('/history')
+    const records = await res.json()
+
+    if (!records.length) {
+      container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">尚無已處理的記錄</p>'
+      return
+    }
+
+    container.innerHTML = records.map(r => `
+      <div class="flex items-center justify-between py-3 border-b border-gray-100 last:border-0 fade-in">
+        <div class="min-w-0 flex-1">
+          <a href="${escHtml(r.url)}" target="_blank"
+            class="text-sm text-blue-600 hover:underline font-medium truncate block">${escHtml(r.title)}</a>
+          <p class="text-xs text-gray-400 mt-0.5">${escHtml(r.time)} · ${escHtml(r.original)}</p>
+        </div>
+        <a href="${escHtml(r.url)}" target="_blank"
+          class="ml-3 shrink-0 px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors">
+          開啟
+        </a>
+      </div>
+    `).join('')
+  } catch {
+    container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">載入失敗</p>'
+  }
+}
+
+// ===== Settings =====
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/settings')
+    const data = await res.json()
+
+    // Gemini key status
+    const geminiStatus = document.getElementById('gemini-status')
+    if (data.GEMINI_API_KEY_SET) {
+      geminiStatus.textContent = `目前：${data.GEMINI_API_KEY}`
+      geminiStatus.className = 'text-xs mt-2 text-green-600'
+    } else {
+      geminiStatus.textContent = '尚未設定'
+      geminiStatus.className = 'text-xs mt-2 text-amber-600'
+    }
+
+    // Folder ID
+    if (data.GDRIVE_FOLDER_ID && data.GDRIVE_FOLDER_ID !== 'your_google_drive_folder_id_here') {
+      document.getElementById('input-folder-id').value = data.GDRIVE_FOLDER_ID
+      // 嘗試取得資料夾名稱
+      try {
+        const fRes = await fetch(`/drive/folders?parent=${data.GDRIVE_FOLDER_ID}`)
+        const fData = await fRes.json()
+        if (fData.current) {
+          document.getElementById('selected-folder-name').textContent = fData.current
+        }
+      } catch {}
+    }
+
+    // Prompt
+    await loadPrompt()
+
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+async function saveGeminiKey() {
+  const key = document.getElementById('input-gemini-key').value.trim()
+  if (!key) return
+
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ GEMINI_API_KEY: key }),
+  })
+
+  const data = await res.json()
+  const status = document.getElementById('gemini-status')
+  if (data.ok) {
+    status.textContent = '已儲存'
+    status.className = 'text-xs mt-2 text-green-600'
+    document.getElementById('input-gemini-key').value = ''
+    checkStatus()
+  } else {
+    status.textContent = '儲存失敗'
+    status.className = 'text-xs mt-2 text-red-600'
+  }
+}
+
+async function saveFolderId(id, name) {
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ GDRIVE_FOLDER_ID: id || '' }),
+  })
+  const data = await res.json()
+  if (data.ok) {
+    document.getElementById('input-folder-id').value = id || ''
+    document.getElementById('selected-folder-name').textContent = name || '未設定（存到雲端硬碟根目錄）'
+    const status = document.getElementById('folder-status')
+    status.textContent = '已儲存'
+    status.className = 'text-xs mt-2 text-green-600'
+    setTimeout(() => { status.textContent = '' }, 2000)
+    checkStatus()
+  }
+}
+
+// ===== Folder Picker =====
+let pickerPath = [{ id: 'root', name: '我的雲端硬碟' }]
+
+function openFolderPicker() {
+  document.getElementById('folder-picker-modal').classList.remove('hidden')
+  pickerPath = [{ id: 'root', name: '我的雲端硬碟' }]
+  loadFolders('root')
+}
+
+function closeFolderPicker() {
+  document.getElementById('folder-picker-modal').classList.add('hidden')
+}
+
+async function loadFolders(parentId) {
+  const listEl = document.getElementById('folder-list')
+  listEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">載入中...</p>'
+  renderBreadcrumb()
+
+  try {
+    const res = await fetch(`/drive/folders?parent=${parentId}`)
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+
+    if (!data.folders.length) {
+      listEl.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">沒有子資料夾</p>'
+      return
+    }
+
+    listEl.innerHTML = data.folders.map(f => `
+      <button onclick="navigateFolder('${f.id}', '${escAttr(f.name)}')"
+        class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors">
+        <span class="text-blue-500">&#128193;</span>
+        <span class="text-sm text-gray-800">${escHtml(f.name)}</span>
+      </button>
+    `).join('')
+  } catch (err) {
+    listEl.innerHTML = `<p class="text-sm text-red-400 text-center py-6">${escHtml(err.message)}</p>`
+  }
+}
+
+function navigateFolder(id, name) {
+  pickerPath.push({ id, name })
+  loadFolders(id)
+}
+
+function navigateToIndex(index) {
+  pickerPath = pickerPath.slice(0, index + 1)
+  loadFolders(pickerPath[pickerPath.length - 1].id)
+}
+
+function renderBreadcrumb() {
+  const el = document.getElementById('folder-breadcrumb')
+  el.innerHTML = pickerPath.map((p, i) => {
+    if (i === pickerPath.length - 1) {
+      return `<span class="text-gray-700 font-medium">${escHtml(p.name)}</span>`
+    }
+    return `<button onclick="navigateToIndex(${i})" class="text-blue-600 hover:underline">${escHtml(p.name)}</button><span class="text-gray-300">/</span>`
+  }).join('')
+}
+
+function selectCurrentFolder() {
+  const current = pickerPath[pickerPath.length - 1]
+  const id = current.id === 'root' ? '' : current.id
+  const name = current.name
+  saveFolderId(id, name)
+  closeFolderPicker()
+}
+
+function escAttr(str) {
+  return str.replace(/'/g, "\\'").replace(/"/g, '&quot;')
+}
+
+async function loadPrompt() {
+  try {
+    const res = await fetch('/prompt')
+    const data = await res.json()
+    document.getElementById('prompt-editor').value = data.content || ''
+  } catch {}
+}
+
+async function savePrompt() {
+  const content = document.getElementById('prompt-editor').value
+  const res = await fetch('/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  const data = await res.json()
+  const status = document.getElementById('prompt-status')
+  if (data.ok) {
+    status.textContent = '已儲存'
+    status.className = 'text-xs mt-2 text-right text-green-600'
+  } else {
+    status.textContent = '儲存失敗'
+    status.className = 'text-xs mt-2 text-right text-red-600'
+  }
+  setTimeout(() => { status.textContent = '' }, 2000)
+}
+
+// ===== Utils =====
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+// ===== Init =====
+checkStatus()
+</script>
+</body>
+</html>
