@@ -144,7 +144,16 @@ def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print, max_r
     for attempt in range(1, max_retries + 1):
         try:
             if attempt > 1:
-                log(f"重試中（第 {attempt}/{max_retries} 次）...")
+                # 重新上傳檔案（舊的 file reference 可能已過期）
+                log(f"重試中（第 {attempt}/{max_retries} 次），重新上傳...")
+                try:
+                    genai.delete_file(audio_file.name)
+                except Exception:
+                    pass
+                audio_file = genai.upload_file(audio_path)
+                while audio_file.state.name == "PROCESSING":
+                    time.sleep(3)
+                    audio_file = genai.get_file(audio_file.name)
             else:
                 log("呼叫 Gemini 產生會議記錄...")
 
@@ -165,6 +174,16 @@ def transcribe_and_summarize(audio_path: str, prompt_text: str, log=print, max_r
 
         except Exception as e:
             last_error = e
+            err_str = str(e)
+
+            # 內容被安全過濾擋住，重試沒用
+            if "PROHIBITED_CONTENT" in err_str or "block_reason" in err_str:
+                try:
+                    genai.delete_file(audio_file.name)
+                except Exception:
+                    pass
+                raise RuntimeError(f"Gemini 安全過濾：此錄音內容被判定為不允許處理。可嘗試裁切音檔後重試。")
+
             if attempt < max_retries:
                 wait = 2 ** attempt
                 log(f"Gemini API 錯誤：{e}，{wait} 秒後重試...")
