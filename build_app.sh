@@ -59,6 +59,11 @@ if needsInstall then
   end if
 end if
 
+-- ===== 自動同步更新 + 依賴檢查 =====
+try
+  do shell script "cd " & quoted form of projectDir & " && git pull origin main --ff-only 2>/dev/null && " & quoted form of (venvDir & "/bin/pip") & " install -q -r requirements.txt 2>/dev/null"
+end try
+
 -- ===== 啟動伺服器 =====
 set isRunning to false
 try
