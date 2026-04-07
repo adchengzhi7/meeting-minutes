@@ -2,11 +2,15 @@
 
 錄音 / 錄影 → Gemini AI → 結構化 Google Doc 會議記錄
 
-## 安裝（一行指令）
+## 安裝
+
+打開「終端機」（Spotlight 搜尋 Terminal），貼上這行：
 
 ```bash
-git clone https://github.com/adchengzhi7/meeting-minutes.git ~/Desktop/會議記錄 && cd ~/Desktop/會議記錄 && bash install.sh
+xcode-select --install 2>/dev/null; git clone https://github.com/adchengzhi7/meeting-minutes.git ~/Desktop/會議記錄 && cd ~/Desktop/會議記錄 && bash install.sh
 ```
+
+> 如果跳出安裝 Xcode 的視窗，點「安裝」等它完成後，再貼一次上面的指令。
 
 安裝過程會自動處理 Homebrew、Python、ffmpeg 等依賴。
 

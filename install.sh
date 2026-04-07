@@ -7,6 +7,16 @@ echo ""
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$PROJECT_DIR/.venv"
 
+# 檢查 Xcode Command Line Tools（git、make 等基礎工具）
+if ! xcode-select -p &>/dev/null; then
+    echo "安裝 Xcode Command Line Tools..."
+    xcode-select --install
+    echo ""
+    echo "請在彈出視窗點「安裝」，完成後重新執行此腳本："
+    echo "  cd $PROJECT_DIR && bash install.sh"
+    exit 0
+fi
+
 # 檢查 Homebrew
 if ! command -v brew &>/dev/null; then
     echo "正在安裝 Homebrew..."
