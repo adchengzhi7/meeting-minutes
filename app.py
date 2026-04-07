@@ -611,12 +611,28 @@ def start_watch():
                     _watch_progress["started_at"] = None
                     self._processing.discard(str(fp))
 
+        handler = ProgressHandler()
         _watcher_observer = Observer()
-        _watcher_observer.schedule(ProgressHandler(), str(WATCH_FOLDER), recursive=False)
+        _watcher_observer.schedule(handler, str(WATCH_FOLDER), recursive=False)
         _watcher_observer.daemon = True
         _watcher_observer.start()
         _watcher_thread = _watcher_observer
-        return jsonify({"ok": True, "message": f"開始監控 {WATCH_FOLDER}"})
+
+        # 啟動時掃描已有的檔案
+        existing = [f for f in WATCH_FOLDER.iterdir()
+                     if f.is_file()
+                     and not f.name.startswith(".")
+                     and not f.name.startswith("~")
+                     and f.suffix.lower() in SUPPORTED_FORMATS]
+        if existing:
+            def _process_existing():
+                for fp in existing:
+                    handler._processing.add(str(fp))
+                    handler._process(fp)
+            threading.Thread(target=_process_existing, daemon=True).start()
+
+        count_msg = f"（{len(existing)} 個待處理）" if existing else ""
+        return jsonify({"ok": True, "message": f"開始監控 {WATCH_FOLDER}{count_msg}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
